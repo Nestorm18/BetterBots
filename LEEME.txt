@@ -1,0 +1,73 @@
+BetterBots - mod de bots para Rising Storm 2: Vietnam (solo offline)
+=====================================================================
+
+INSTALACION
+-----------
+1. Copia el archivo "BetterBots.u" (carpeta "Mod" de este zip) en:
+
+   Documentos\My Games\Rising Storm 2\ROGame\Unpublished\CookedPC\Script\
+
+   Si las carpetas "Unpublished\CookedPC\Script" no existen, créalas.
+   (La carpeta "My Games\Rising Storm 2" aparece después de haber
+   abierto el juego al menos una vez.)
+
+2. En Steam: clic derecho en Rising Storm 2 > Propiedades >
+   Opciones de lanzamiento, y escribe:
+
+   -useunpublished
+
+
+JUGAR
+-----
+Abre el juego, pulsa la tecla ~ (consola) y escribe por ejemplo:
+
+   open VNTE-CuChi?mutator=BetterBots.BBMutator
+
+Por defecto rellena hasta 64 jugadores. Para otro número:
+
+   open VNTE-CuChi?MinPlayers=40?mutator=BetterBots.BBMutator
+
+TODOS LOS MAPAS (modo Territorios)
+----------------------------------
+Copia y pega en la consola. MinPlayers=64 llena los dos bandos (32 por bando). Bájalo para menos bots.
+
+   open VNTE-AnLaoValley?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-ApacheSnow?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-ASau?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-BorderWatch?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Compound?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-CuaViet?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-DaNangAirBase?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-DemilitarizedZone?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-DongHa?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Firebase?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-FirebaseGeorgina?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Highway14?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Hill937?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-HueCity?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-KheSanh?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-LongTan?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Mekong?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-NinhPhu?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-OperationForrest?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-QuangTri?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Resort?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-RungSac?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-Saigon?MinPlayers=64?mutator=BetterBots.BBMutator
+   open VNTE-SongBe?MinPlayers=64?mutator=BetterBots.BBMutator
+
+
+COMANDOS EN PARTIDA (consola)
+-----------------------------
+   JoinSquad 0     Unirte a la escuadra 0 (1, 2...), aunque esté llena:
+                   un bot se cambia a otra escuadra.
+   BBLeader        Ser líder de tu escuadra (el bot líder pasa a soldado).
+
+
+NOTAS
+-----
+- Solo funciona offline. En servidores online no se carga.
+- No lo uses a la vez que otros mods de bots (p. ej. GOM): chocarían.
+- La carpeta "Codigo" contiene el código fuente (no hace falta para jugar).
+- Para desinstalar: borra BetterBots.u y quita -useunpublished de Steam.
