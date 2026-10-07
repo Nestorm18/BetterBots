@@ -111,6 +111,9 @@ var		float	BBLastSmokeThrow;
 var		float	BBBoundHoldEnd;
 var		float	BBNextBoundTime;
 
+var		bool	bBBZoneMoving;				// Repositioning inside the capture zone
+var		float	BBZoneNextMove;
+
 // Helicopter pilot (phase 0 test: take off, hover, land)
 var		bool				bBBHeliPilot;
 var		ROVehicleHelicopter	BBHeli;
@@ -1165,6 +1168,49 @@ function int GetBestObjectiveIndex()
 }
 
 /**
+ * The stock hold state mostly crouches in one spot staring at the horizon.
+ * Move around the zone instead: often when the capture is stuck (attackers)
+ * or enemies are inside (defenders) to hunt them out, now and then otherwise.
+ */
+function bool BBShouldMoveInZone()
+{
+	local ROObjective Obj;
+	local int NumFriendly, NumEnemy;
+	local bool bHunt;
+
+	if (WorldInfo.TimeSeconds < BBZoneNextMove || (Enemy != none && CanSee(Enemy)))
+	{
+		return false;
+	}
+	Obj = BBGetObjective(CurrentOrders.OrderIndex);
+	if (Obj == none)
+	{
+		return false;
+	}
+
+	if (BBIsDefender())
+	{
+		BBCountInside(Obj, NumFriendly, NumEnemy);
+		bHunt = NumEnemy > 0;
+	}
+	else
+	{
+		// Not ours and we are not capturing it: someone is hiding in there
+		bHunt = !BBIsMine(Obj) && !(Obj.bCapping && Obj.CapTeamIndex == GetTeamNum());
+	}
+
+	if (bHunt)
+	{
+		BBZoneNextMove = WorldInfo.TimeSeconds + BBRand(6, 10);
+		return true;
+	}
+
+	// Quiet: reposition every so often instead of standing still forever
+	BBZoneNextMove = WorldInfo.TimeSeconds + BBRand(15, 30);
+	return FRand() < 0.5;
+}
+
+/**
  * The stock version re-picks an objective (and a new random goal point) every
  * evaluation unless the bot is in GoThereAndStayThere. Only re-pick when the
  * current objective is no longer worth it.
@@ -1244,6 +1290,21 @@ function bool ShouldFindNewObjective(bool CurrentlyInHoldObjective)
 
 	if (InMyObjectiveArea(true) && BBIsCurrentObjectiveUseful())
 	{
+		// Let a move inside the zone finish
+		if (bBBZoneMoving && IsInState('GoThereAndStayThere', true))
+		{
+			return false;
+		}
+		bBBZoneMoving = false;
+
+		if (BBShouldMoveInZone())
+		{
+			bBBZoneMoving = true;
+			SetGoalLocation(NewGetObjectiveLocation());	// Random point inside the zone
+			GotoState('GoThereAndStayThere');
+			return false;
+		}
+
 		if (!CurrentlyInHoldObjective)
 		{
 			GoToState('HoldObjective');
