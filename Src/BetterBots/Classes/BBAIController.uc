@@ -113,6 +113,7 @@ var		float	BBNextBoundTime;
 
 var		bool	bBBZoneMoving;				// Repositioning inside the capture zone
 var		float	BBZoneNextMove;
+var		float	BBNextZoneReeval;			// Next time a bot in a zone reconsiders its objective
 
 // Helicopter pilot (phase 0 test: take off, hover, land)
 var		bool				bBBHeliPilot;
@@ -1296,6 +1297,18 @@ function bool ShouldFindNewObjective(bool CurrentlyInHoldObjective)
 			return false;
 		}
 		bBBZoneMoving = false;
+
+		// Every so often reconsider: the fight may have moved (e.g. a lost point
+		// is now worth retaking). The stickiness bonus in GetBestObjectiveIndex
+		// keeps bots from flip-flopping between zones.
+		if (WorldInfo.TimeSeconds >= BBNextZoneReeval)
+		{
+			BBNextZoneReeval = WorldInfo.TimeSeconds + BBRand(10, 15);
+			if (GetBestObjectiveIndex() != CurrentOrders.OrderIndex)
+			{
+				return true;
+			}
+		}
 
 		if (BBShouldMoveInZone())
 		{
