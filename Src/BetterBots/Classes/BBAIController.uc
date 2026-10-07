@@ -127,6 +127,7 @@ var		int					BBHeliTargetYaw;
 var		vector				BBHeliHoldLocation;
 var		float				BBHeliNextLog;
 var		float				BBHeliMaxAGL;
+var		float				BBHeliTouchdownVZ;
 
 event PostBeginPlay()
 {
@@ -255,7 +256,7 @@ function BBHeliSetPhase(name NewPhase)
  */
 function BBHeliControl(float DeltaTime)
 {
-	local vector X, Y, Z, VelNoZ, DesiredVel, VelErr, ToHold;
+	local vector X, Y, Z, VelNoZ, DesiredVel, VelErr, ToHold, Drift;
 	local float AGL, VZ, DesiredVZ, Collective, SpeedNorm, TargetPitch, TargetRoll;
 	local float InForward, InStrafe, InYaw;
 	local int YawErr;
@@ -301,13 +302,14 @@ function BBHeliControl(float DeltaTime)
 		case 'Descend':
 			if (BBHeli.bVehicleOnGround || BBHeli.bWasChassisTouchingGroundLastTick)
 			{
+				BBHeliTouchdownVZ = VZ;
 				BBHeliSetPhase('Landed');
 			}
 			break;
 		case 'Landed':
 			if (WorldInfo.TimeSeconds - BBHeliPhaseStart > 3.0)
 			{
-				`log("[BetterBots][Heli] TEST DONE. Max AGL"@int(BBHeliMaxAGL)@"UU, drift from start"@int(VSize(BBHeli.Location - BBHeliHoldLocation))@"UU, health"@BBHeli.Health);
+				`log("[BetterBots][Heli] TEST DONE. Max AGL"@int(BBHeliMaxAGL)@"UU, vertical speed at touchdown ~"$int(BBHeliTouchdownVZ)@"UU/s, health"@BBHeli.Health);
 				BBHeliSetPhase('Done');
 			}
 			break;
@@ -322,7 +324,20 @@ function BBHeliControl(float DeltaTime)
 	{
 		if (BBHeliPhase == 'Descend')
 		{
-			DesiredVZ = (AGL > 600.0) ? -250.0 : -120.0;
+			// Slow down well before the ground: the rotor loses RPM at high
+			// collective, so braking late gives a hard touchdown
+			if (AGL > 1000.0)
+			{
+				DesiredVZ = -250.0;
+			}
+			else if (AGL > 400.0)
+			{
+				DesiredVZ = -150.0;
+			}
+			else
+			{
+				DesiredVZ = -70.0;
+			}
 		}
 		else
 		{
@@ -375,10 +390,12 @@ function BBHeliControl(float DeltaTime)
 
 	if (WorldInfo.TimeSeconds >= BBHeliNextLog)
 	{
+		Drift = BBHeli.Location - BBHeliHoldLocation;
+		Drift.Z = 0;
 		BBHeliNextLog = WorldInfo.TimeSeconds + 1.0;
 		`log("[BetterBots][Heli]"@BBHeliPhase@"AGL="$int(AGL)@"VZ="$int(VZ)@"RPM="$int(BBHeli.CurrentRPM)$"/"$int(BBHeli.NormalRPM)@
 			"Coll="$Collective@"Trim="$BBHeliCollectiveTrim@"Pitch="$int(BBHeli.CurrentPitch * 0.0055)@"Roll="$int(BBHeli.CurrentRoll * 0.0055)@
-			"YawErr="$int(YawErr * 0.0055)@"Drift="$int(VSize(BBHeli.Location - BBHeliHoldLocation))@"In="$InForward$","$InStrafe$","$InYaw);
+			"YawErr="$int(YawErr * 0.0055)@"Drift="$int(VSize(Drift))@"In="$InForward$","$InStrafe$","$InYaw);
 	}
 }
 
