@@ -64,6 +64,14 @@ COMANDOS EN PARTIDA (consola)
                    un bot se cambia a otra escuadra.
    BBLeader        Ser líder de tu escuadra (el bot líder pasa a soldado).
 
+PRUEBAS DE HELICOPTERO (en desarrollo, solo bando EE. UU.)
+   BBHeliTest      Un bot despega en un Cobra/Loach libre, se queda
+                   30 s a 30 m y aterriza. (BBHeliTest 60 = 60 s)
+   BBHeliGoto      El bot vuela hasta donde estás, espera 20 s y vuelve
+                   a aterrizar donde despegó.
+   BBHeliGoto 2    Igual, pero al objetivo 2 (1 = A, 2 = B...).
+   BBHeliHome      Ordena volver y aterrizar.
+
 
 NOTAS
 -----

@@ -7,7 +7,8 @@ Los helicopteros vuelven a base para recargar municion y repararse.
 Estado: FASE 0 COMPLETADA (07-10-2026). Probada en Hill937 con Cobra:
 spool 19 s, subida a ~30 m, 30 s estacionario estable sin deriva ni giro,
 aterrizaje en el punto de despegue (algo brusco, ~5 m/s; ajustado).
-Siguiente: FASE 1 (vuelo a puntos).
+FASE 1 IMPLEMENTADA, pendiente de prueba: BBHeliGoto / BBHeliHome
+(seguimiento del terreno, rumbo, crucero 1200 UU/s, ida, espera, vuelta y aterrizaje).
 
 
 1. QUE OFRECE EL JUEGO (comprobado en el codigo del SDK)

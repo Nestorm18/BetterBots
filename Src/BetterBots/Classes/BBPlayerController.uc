@@ -67,22 +67,16 @@ reliable protected server function ServerJoinSquad(int NewSquadIndex, optional b
 	super.ServerJoinSquad(NewSquadIndex, bViaInvite);
 }
 
-/**
- * Helicopter phase 0 test: a friendly bot takes a free attack helicopter
- * (Cobra preferred), climbs to 30 m, hovers, and lands. See the log.
- */
-exec function BBHeliTest(optional float HoverSeconds)
+/** A free attack helicopter (Cobra preferred) and the nearest bot of its team */
+function bool BBPickHeliAndBot(out ROVehicleHelicopter Best, out BBAIController BestBot)
 {
-	local ROVehicleHelicopter H, Best;
-	local BBAIController Bot, BestBot;
+	local ROVehicleHelicopter H;
+	local BBAIController Bot;
 	local ROPlayerReplicationInfo BotPRI;
 	local float DistSq, BestDistSq;
 
-	if (HoverSeconds <= 0)
-	{
-		HoverSeconds = 30;
-	}
 	Best = none;
+	BestBot = none;
 
 	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
 	{
@@ -97,7 +91,7 @@ exec function BBHeliTest(optional float HoverSeconds)
 	if (Best == none)
 	{
 		ClientMessage("[BetterBots] No free attack helicopter on this map");
-		return;
+		return false;
 	}
 
 	BestDistSq = 1000000000000.0;
@@ -118,17 +112,127 @@ exec function BBHeliTest(optional float HoverSeconds)
 	if (BestBot == none)
 	{
 		ClientMessage("[BetterBots] No bot available on the helicopter's team");
+		return false;
+	}
+	return true;
+}
+
+/** The bot currently piloting with the autopilot, if any */
+function BBAIController BBFindHeliPilot()
+{
+	local BBAIController Bot;
+
+	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
+	{
+		if (Bot.BBIsFlyingHeli())
+		{
+			return Bot;
+		}
+	}
+	return none;
+}
+
+/**
+ * Helicopter phase 0 test: a friendly bot takes a free attack helicopter
+ * (Cobra preferred), climbs to 30 m, hovers, and lands. See the log.
+ */
+exec function BBHeliTest(optional float HoverSeconds)
+{
+	local ROVehicleHelicopter Heli;
+	local BBAIController Bot;
+
+	if (HoverSeconds <= 0)
+	{
+		HoverSeconds = 30;
+	}
+	if (!BBPickHeliAndBot(Heli, Bot))
+	{
 		return;
 	}
-
-	if (BestBot.BBStartHeliTest(Best, HoverSeconds))
+	if (Bot.BBStartHeliTest(Heli, HoverSeconds))
 	{
-		ClientMessage("[BetterBots]"@BestBot.PlayerReplicationInfo.PlayerName@"is flying"@Best.Class.Name);
+		ClientMessage("[BetterBots]"@Bot.PlayerReplicationInfo.PlayerName@"is flying"@Heli.Class.Name);
 	}
 	else
 	{
 		ClientMessage("[BetterBots] Heli test failed to start, see Launch.log");
 	}
+}
+
+/**
+ * Helicopter phase 1 test: fly to a point, loiter, come back and land.
+ *   BBHeliGoto      -> to where you are standing now
+ *   BBHeliGoto 1    -> to objective 1 (A), 2 (B), ...
+ * Reuses the bot already flying if there is one.
+ */
+exec function BBHeliGoto(optional int ObjectiveNumber, optional float LoiterSeconds)
+{
+	local ROGameInfoTerritories ROGIT;
+	local ROVehicleHelicopter Heli;
+	local BBAIController Bot;
+	local vector Dest;
+
+	if (LoiterSeconds <= 0)
+	{
+		LoiterSeconds = 20;
+	}
+
+	if (ObjectiveNumber > 0)
+	{
+		ROGIT = ROGameInfoTerritories(WorldInfo.Game);
+		if (ROGIT == none || ObjectiveNumber > ROGIT.Objectives.Length || ROGIT.Objectives[ObjectiveNumber - 1] == none)
+		{
+			ClientMessage("[BetterBots] No objective"@ObjectiveNumber);
+			return;
+		}
+		Dest = ROGIT.Objectives[ObjectiveNumber - 1].Location;
+		ClientMessage("[BetterBots] Heli to objective"@ROGIT.Objectives[ObjectiveNumber - 1].ObjName);
+	}
+	else if (Pawn != none)
+	{
+		Dest = Pawn.Location;
+	}
+	else
+	{
+		ClientMessage("[BetterBots] You need to be alive to send the heli to you");
+		return;
+	}
+
+	Bot = BBFindHeliPilot();
+	if (Bot != none)
+	{
+		Bot.BBHeliRetask('Goto', Dest, LoiterSeconds);
+		ClientMessage("[BetterBots] Retasked"@Bot.PlayerReplicationInfo.PlayerName);
+		return;
+	}
+
+	if (!BBPickHeliAndBot(Heli, Bot))
+	{
+		return;
+	}
+	if (Bot.BBStartHeli(Heli, 'Goto', Dest, LoiterSeconds))
+	{
+		ClientMessage("[BetterBots]"@Bot.PlayerReplicationInfo.PlayerName@"is flying"@Heli.Class.Name);
+	}
+	else
+	{
+		ClientMessage("[BetterBots] Heli flight failed to start, see Launch.log");
+	}
+}
+
+/** Send the flying bot back to its take-off point to land */
+exec function BBHeliHome()
+{
+	local BBAIController Bot;
+
+	Bot = BBFindHeliPilot();
+	if (Bot == none)
+	{
+		ClientMessage("[BetterBots] No bot is flying a helicopter");
+		return;
+	}
+	Bot.BBHeliRetask('Home', Bot.BBHeliHome, 0);
+	ClientMessage("[BetterBots]"@Bot.PlayerReplicationInfo.PlayerName@"returning to base");
 }
 
 exec function BBLeader()

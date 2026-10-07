@@ -115,16 +115,22 @@ var		bool	bBBZoneMoving;				// Repositioning inside the capture zone
 var		float	BBZoneNextMove;
 var		float	BBNextZoneReeval;			// Next time a bot in a zone reconsiders its objective
 
-// Helicopter pilot (phase 0 test: take off, hover, land)
+// Helicopter pilot
 var		bool				bBBHeliPilot;
 var		ROVehicleHelicopter	BBHeli;
-var		name				BBHeliPhase;		// Spool, Climb, Hover, Descend, Landed, Done
+var		name				BBHeliMission;		// Hover, Goto, Home
+var		name				BBHeliPhase;		// Spool, Climb, Transit, Loiter, Return, Approach, Descend, Landed, Done
 var		float				BBHeliPhaseStart;
-var		float				BBHeliHoverTime;
-var		float				BBHeliTargetAGL;	// UU above ground
+var		float				BBHeliFlightStart;
+var		float				BBHeliHoverTime;	// Loiter time at the destination
 var		float				BBHeliCollectiveTrim;	// Learned hover collective (0-1)
 var		int					BBHeliTargetYaw;
 var		vector				BBHeliHoldLocation;
+var		vector				BBHeliDest;
+var		vector				BBHeliHome;			// Take-off point, where it lands again
+var		float				BBHeliTerrainZ;		// Cached cruise height over the ground ahead
+var		float				BBHeliNextTerrain;
+var		float				BBHeliObstacleUntil;
 var		float				BBHeliNextLog;
 var		float				BBHeliMaxAGL;
 var		float				BBHeliTouchdownVZ;
@@ -164,8 +170,18 @@ function Possess(Pawn aPawn, bool bVehicleTransition)
 }
 
 /*-----------------------------------------------------------------------------
-	Helicopter pilot - phase 0 (BBHeliTest): take off, hover, land
+	Helicopter pilot
+	Phase 0 (BBHeliTest): take off, hover, land.
+	Phase 1 (BBHeliGoto): climb, fly to a point following the terrain,
+	loiter, fly back to the take-off point and land.
 -----------------------------------------------------------------------------*/
+
+const BB_HeliHoverAGL		= 1500.0;	// 30 m
+const BB_HeliLoiterAGL		= 2500.0;	// 50 m over a destination
+const BB_HeliCruiseAGL		= 3000.0;	// 60 m over the highest ground ahead
+const BB_HeliApproachAGL	= 1500.0;
+const BB_HeliCruiseSpeed	= 1200.0;	// UU/s (~86 km/h), kept low while tuning
+const BB_HeliMaxTilt		= 3641.0;	// 20 deg cyclic pitch/roll limit
 
 function class<RORoleInfo> BBFindPilotRoleClass()
 {
@@ -190,8 +206,11 @@ function class<RORoleInfo> BBFindPilotRoleClass()
 	return none;
 }
 
-/** Makes this bot a pilot and puts it in the helicopter's pilot seat */
-function bool BBStartHeliTest(ROVehicleHelicopter Heli, float HoverSeconds)
+/**
+ * Makes this bot a pilot and puts it in the helicopter's pilot seat.
+ * Mission: 'Hover' (phase 0 test) or 'Goto' (fly to Dest and back).
+ */
+function bool BBStartHeli(ROVehicleHelicopter Heli, name Mission, vector Dest, float LoiterSeconds)
 {
 	local ROPlayerReplicationInfo ROPRI;
 	local class<RORoleInfo> PilotClass;
@@ -218,16 +237,68 @@ function bool BBStartHeliTest(ROVehicleHelicopter Heli, float HoverSeconds)
 		}
 	}
 
+	// Read by BBHeliFly.BeginState when DriverEnter possesses the helicopter
 	bBBHeliPilot = true;
-	BBHeliHoverTime = HoverSeconds;
+	BBHeliMission = Mission;
+	BBHeliDest = Dest;
+	BBHeliHoverTime = LoiterSeconds;
 	if (!Heli.DriverEnter(Pawn))
 	{
 		`log("[BetterBots][Heli] DriverEnter refused for"@ROPRI.PlayerName@"in"@Heli);
 		bBBHeliPilot = false;
 		return false;
 	}
-	`log("[BetterBots][Heli]"@ROPRI.PlayerName@"is flying"@Heli@"hover"@HoverSeconds$"s");
+	`log("[BetterBots][Heli]"@ROPRI.PlayerName@"is flying"@Heli@"mission"@Mission@"dest"@Dest@"loiter"@LoiterSeconds$"s");
 	return true;
+}
+
+function bool BBStartHeliTest(ROVehicleHelicopter Heli, float HoverSeconds)
+{
+	return BBStartHeli(Heli, 'Hover', vect(0,0,0), HoverSeconds);
+}
+
+/** New orders for a bot that is already flying (or sitting landed in the pilot seat) */
+function BBHeliRetask(name Mission, vector Dest, float LoiterSeconds)
+{
+	BBHeliMission = Mission;
+	BBHeliDest = Dest;
+	BBHeliHoverTime = LoiterSeconds;
+
+	if (BBHeliPhase == 'Spool' || BBHeliPhase == 'Landed' || BBHeliPhase == 'Done')
+	{
+		BBHeliHoldLocation = BBHeli.Location;
+		BBHeliSetPhase((BBHeliPhase == 'Spool') ? 'Spool' : 'Climb');
+	}
+	else if (Mission == 'Home')
+	{
+		BBHeliSetPhase('Return');
+	}
+	else
+	{
+		BBHeliSetPhase('Transit');
+	}
+	`log("[BetterBots][Heli] Retasked:"@Mission@"dest"@Dest);
+}
+
+function bool BBIsFlyingHeli()
+{
+	return bBBHeliPilot && BBHeli != none && BBHeli.Health > 0 && Pawn == BBHeli;
+}
+
+/** Height of the ground below a point (world geometry only) */
+function float BBHeliGroundZ(vector P)
+{
+	local vector HitLocation, HitNormal, Start, End;
+
+	Start = P;
+	Start.Z = BBHeli.Location.Z + 8000.0;
+	End = P;
+	End.Z = BBHeli.Location.Z - 60000.0;
+	if (Trace(HitLocation, HitNormal, End, Start, false) == none)
+	{
+		return End.Z;
+	}
+	return HitLocation.Z;
 }
 
 /** Height above ground under the helicopter, in UU */
@@ -242,6 +313,57 @@ function float BBHeliAGL()
 	return BBHeli.Location.Z - HitLocation.Z - BBHeli.AltitudeOffset;
 }
 
+/** Cruise altitude limited by the map ceiling */
+function float BBHeliClampAGL(float WantedAGL)
+{
+	if (BBHeli.Ceiling > 0)
+	{
+		return FMin(WantedAGL, BBHeli.Ceiling - 300.0);
+	}
+	return WantedAGL;
+}
+
+/**
+ * Absolute height to fly at: AGL over the highest ground on the path ahead
+ * (samples up to ~3 s of flight ahead), refreshed 4 times a second.
+ */
+function float BBHeliTerrainTargetZ(vector Dir, float Speed, float DistToDest, float WantedAGL)
+{
+	local float Step, D, GroundZ, MaxGround;
+	local int i;
+
+	if (WorldInfo.TimeSeconds < BBHeliNextTerrain)
+	{
+		return BBHeliTerrainZ;
+	}
+	BBHeliNextTerrain = WorldInfo.TimeSeconds + 0.25;
+
+	Step = FMax(Speed, 800.0);
+	MaxGround = BBHeliGroundZ(BBHeli.Location);
+	for (i = 1; i <= 3; i++)
+	{
+		D = FMin(Step * i, DistToDest + 500.0);
+		GroundZ = BBHeliGroundZ(BBHeli.Location + Dir * D);
+		MaxGround = FMax(MaxGround, GroundZ);
+	}
+	BBHeliTerrainZ = MaxGround + BBHeliClampAGL(WantedAGL) + BBHeli.AltitudeOffset;
+	return BBHeliTerrainZ;
+}
+
+/** Something solid in the flight path within ~2.5 s (trees, buildings, hills) */
+function bool BBHeliObstacleAhead(vector VelNoZ)
+{
+	local vector HitLocation, HitNormal, Ahead;
+
+	if (VSize(VelNoZ) < 200.0)
+	{
+		return false;
+	}
+	Ahead = BBHeli.Location + VelNoZ * 2.5;
+	Ahead.Z -= 200.0;
+	return Trace(HitLocation, HitNormal, Ahead, BBHeli.Location, false) != none;
+}
+
 function BBHeliSetPhase(name NewPhase)
 {
 	`log("[BetterBots][Heli] Phase"@BBHeliPhase@"->"@NewPhase@"after"@int(WorldInfo.TimeSeconds - BBHeliPhaseStart)$"s");
@@ -250,18 +372,19 @@ function BBHeliSetPhase(name NewPhase)
 }
 
 /**
- * Autopilot. Collective holds a vertical speed (with a learned hover trim),
- * cyclic holds the start position (same pitch/roll law as the stock auto-hover,
- * driven by velocity error), pedals hold the start heading.
+ * Autopilot. Collective holds a vertical speed (with a learned hover trim).
+ * Cyclic tracks a desired horizontal velocity with the same pitch/roll law as
+ * the stock auto-hover, limited to BB_HeliMaxTilt. Pedals hold a heading.
  */
 function BBHeliControl(float DeltaTime)
 {
-	local vector X, Y, Z, VelNoZ, DesiredVel, VelErr, ToHold, Drift;
-	local float AGL, VZ, DesiredVZ, Collective, SpeedNorm, TargetPitch, TargetRoll;
-	local float InForward, InStrafe, InYaw;
+	local vector X, Y, Z, VelNoZ, DesiredVel, VelErr, ToDest, Dir, Drift;
+	local float AGL, VZ, DesiredVZ, TargetZ, Collective, SpeedNorm, TargetPitch, TargetRoll;
+	local float InForward, InStrafe, InYaw, Dist, Speed, WantedSpeed;
+	local bool bMoving, bObstacle;
 	local int YawErr;
 
-	if (BBHeli == none || BBHeli.Health <= 0 || Pawn != BBHeli)
+	if (!BBIsFlyingHeli())
 	{
 		`log("[BetterBots][Heli] Lost the helicopter (destroyed or left), phase"@BBHeliPhase);
 		bBBHeliPilot = false;
@@ -271,7 +394,23 @@ function BBHeliControl(float DeltaTime)
 
 	AGL = BBHeliAGL();
 	VZ = BBHeli.Velocity.Z;
+	VelNoZ = BBHeli.Velocity;
+	VelNoZ.Z = 0;
+	Speed = VSize(VelNoZ);
 	BBHeliMaxAGL = FMax(BBHeliMaxAGL, AGL);
+
+	// Destination for travelling phases
+	if (BBHeliPhase == 'Return' || BBHeliPhase == 'Approach')
+	{
+		ToDest = BBHeliHome - BBHeli.Location;
+	}
+	else
+	{
+		ToDest = BBHeliDest - BBHeli.Location;
+	}
+	ToDest.Z = 0;
+	Dist = VSize(ToDest);
+	Dir = (Dist > 1.0) ? ToDest / Dist : vect(0,0,0);
 
 	// --- Phase logic ---
 	switch (BBHeliPhase)
@@ -283,19 +422,48 @@ function BBHeliControl(float DeltaTime)
 			}
 			break;
 		case 'Climb':
-			if (AGL > BBHeliTargetAGL * 0.9)
+			if (AGL > BB_HeliHoverAGL * 0.9)
 			{
-				BBHeliSetPhase('Hover');
+				BBHeliSetPhase((BBHeliMission == 'Hover') ? 'Loiter' : ((BBHeliMission == 'Home') ? 'Return' : 'Transit'));
 			}
 			else if (WorldInfo.TimeSeconds - BBHeliPhaseStart > 40.0)
 			{
 				`log("[BetterBots][Heli] Climb timed out at AGL"@int(AGL));
+				BBHeliHoldLocation = BBHeli.Location;
 				BBHeliSetPhase('Descend');
 			}
 			break;
-		case 'Hover':
+		case 'Transit':
+			if (Dist < 600.0 && Speed < 400.0)
+			{
+				BBHeliHoldLocation = BBHeliDest;
+				BBHeliSetPhase('Loiter');
+			}
+			break;
+		case 'Loiter':
 			if (WorldInfo.TimeSeconds - BBHeliPhaseStart > BBHeliHoverTime)
 			{
+				if (BBHeliMission == 'Hover')
+				{
+					BBHeliHoldLocation = BBHeli.Location;
+					BBHeliSetPhase('Descend');
+				}
+				else
+				{
+					BBHeliSetPhase('Return');
+				}
+			}
+			break;
+		case 'Return':
+			if (Dist < 2500.0)
+			{
+				BBHeliSetPhase('Approach');
+			}
+			break;
+		case 'Approach':
+			if (Dist < 250.0 && Speed < 200.0)
+			{
+				BBHeliHoldLocation = BBHeliHome;
 				BBHeliSetPhase('Descend');
 			}
 			break;
@@ -309,10 +477,66 @@ function BBHeliControl(float DeltaTime)
 		case 'Landed':
 			if (WorldInfo.TimeSeconds - BBHeliPhaseStart > 3.0)
 			{
-				`log("[BetterBots][Heli] TEST DONE. Max AGL"@int(BBHeliMaxAGL)@"UU, vertical speed at touchdown ~"$int(BBHeliTouchdownVZ)@"UU/s, health"@BBHeli.Health);
+				`log("[BetterBots][Heli] FLIGHT DONE. Time"@int(WorldInfo.TimeSeconds - BBHeliFlightStart)$"s, max AGL"@int(BBHeliMaxAGL)@
+					"UU, touchdown VZ ~"$int(BBHeliTouchdownVZ)@"UU/s, distance from home"@int(VSize(BBHeli.Location - BBHeliHome))@"UU, health"@BBHeli.Health);
 				BBHeliSetPhase('Done');
 			}
 			break;
+	}
+
+	bMoving = (BBHeliPhase == 'Transit' || BBHeliPhase == 'Return' || BBHeliPhase == 'Approach');
+
+	// --- Horizontal target ---
+	if (bMoving)
+	{
+		WantedSpeed = FMin(BB_HeliCruiseSpeed, FMax(Dist * 0.35, 150.0));
+		if (BBHeliPhase == 'Approach')
+		{
+			WantedSpeed = FMin(WantedSpeed, FMax(Dist * 0.3, 80.0));
+		}
+		TargetZ = BBHeliTerrainTargetZ(Dir, Speed, Dist, (BBHeliPhase == 'Approach') ? BB_HeliApproachAGL : BB_HeliCruiseAGL);
+
+		bObstacle = BBHeliObstacleAhead(VelNoZ);
+		if (bObstacle)
+		{
+			BBHeliObstacleUntil = WorldInfo.TimeSeconds + 3.0;
+		}
+		if (WorldInfo.TimeSeconds < BBHeliObstacleUntil)
+		{
+			// Something ahead: slow right down and climb over it
+			WantedSpeed *= 0.3;
+			TargetZ += 1500.0;
+		}
+		else if (TargetZ - BBHeli.Location.Z > 800.0)
+		{
+			// Rising ground ahead: slow down while climbing
+			WantedSpeed *= 0.4;
+		}
+		DesiredVel = Dir * WantedSpeed;
+
+		// Face where we are going
+		if (Dist > 800.0)
+		{
+			BBHeliTargetYaw = Rotator(ToDest).Yaw;
+		}
+	}
+	else
+	{
+		DesiredVel = (BBHeliHoldLocation - BBHeli.Location) * 0.5;
+		DesiredVel.Z = 0;
+		if (VSize(DesiredVel) > 300.0)
+		{
+			DesiredVel = Normal(DesiredVel) * 300.0;
+		}
+		if (BBHeliPhase == 'Loiter')
+		{
+			TargetZ = BBHeliGroundZ(BBHeli.Location) + BBHeli.AltitudeOffset +
+				BBHeliClampAGL((BBHeliMission == 'Hover') ? BB_HeliHoverAGL : BB_HeliLoiterAGL);
+		}
+		else
+		{
+			TargetZ = BBHeliGroundZ(BBHeli.Location) + BBHeli.AltitudeOffset + BB_HeliHoverAGL;
+		}
 	}
 
 	// --- Collective (vertical) ---
@@ -341,15 +565,15 @@ function BBHeliControl(float DeltaTime)
 		}
 		else
 		{
-			DesiredVZ = FClamp((BBHeliTargetAGL - AGL) * 0.8, -300.0, 300.0);
+			DesiredVZ = FClamp((TargetZ - BBHeli.Location.Z) * 0.8, -350.0, 500.0);
 		}
-		// Learn the hover point slowly, then add a proportional term
-		BBHeliCollectiveTrim = FClamp(BBHeliCollectiveTrim + 0.0004 * (DesiredVZ - VZ) * DeltaTime, 0.4, 0.98);
+		// Learn the hover point slowly (it changes with forward speed), then add a proportional term
+		BBHeliCollectiveTrim = FClamp(BBHeliCollectiveTrim + 0.0005 * (DesiredVZ - VZ) * DeltaTime, 0.4, 0.98);
 		Collective = FClamp(BBHeliCollectiveTrim + 0.0015 * (DesiredVZ - VZ), 0.0, 1.0);
 	}
 
-	// --- Cyclic (horizontal), only once airborne ---
-	if (BBHeliPhase == 'Climb' || BBHeliPhase == 'Hover' || BBHeliPhase == 'Descend')
+	// --- Cyclic and pedals, only once airborne ---
+	if (BBHeliPhase != 'Spool' && BBHeliPhase != 'Landed' && BBHeliPhase != 'Done')
 	{
 		GetAxes(BBHeli.Rotation, X, Y, Z);
 		X.Z = 0;
@@ -357,26 +581,15 @@ function BBHeliControl(float DeltaTime)
 		X = Normal(X);
 		Y = Normal(Y);
 
-		ToHold = BBHeliHoldLocation - BBHeli.Location;
-		ToHold.Z = 0;
-		DesiredVel = ToHold * 0.5;
-		if (VSize(DesiredVel) > 300.0)
-		{
-			DesiredVel = Normal(DesiredVel) * 300.0;
-		}
-
-		VelNoZ = BBHeli.Velocity;
-		VelNoZ.Z = 0;
 		VelErr = VelNoZ - DesiredVel;
 		SpeedNorm = FMax(BBHeli.MaxSpeed * 0.75, 1500.0);
 
-		// Same law as ROVehicleHelicopter.HandleHoverInputs
-		TargetPitch = FClamp((VelErr dot X) / SpeedNorm, -1.0, 1.0) * BBHeli.MaxAutoHoverPitch;
-		TargetRoll = FClamp((VelErr dot Y) / SpeedNorm, -1.0, 1.0) * BBHeli.MaxAutoHoverRoll;
+		// Same law as ROVehicleHelicopter.HandleHoverInputs, with a tilt limit
+		TargetPitch = FClamp(FClamp((VelErr dot X) / SpeedNorm, -1.0, 1.0) * BBHeli.MaxAutoHoverPitch, -BB_HeliMaxTilt, BB_HeliMaxTilt);
+		TargetRoll = FClamp(FClamp((VelErr dot Y) / SpeedNorm, -1.0, 1.0) * BBHeli.MaxAutoHoverRoll, -BB_HeliMaxTilt, BB_HeliMaxTilt);
 		InForward = FClamp((BBHeli.CurrentPitch - TargetPitch) / BBHeli.MaxAutoHoverPitch, -1.0, 1.0);
 		InStrafe = FClamp((BBHeli.CurrentRoll - TargetRoll) / BBHeli.MaxAutoHoverRoll, -1.0, 1.0);
 
-		// Pedals: hold the start heading
 		YawErr = NormalizeRotAxis(BBHeliTargetYaw - BBHeli.Rotation.Yaw);
 		InYaw = FClamp(YawErr / 8192.0, -0.5, 0.5);
 	}
@@ -390,12 +603,14 @@ function BBHeliControl(float DeltaTime)
 
 	if (WorldInfo.TimeSeconds >= BBHeliNextLog)
 	{
+		BBHeliNextLog = WorldInfo.TimeSeconds + 1.0;
 		Drift = BBHeli.Location - BBHeliHoldLocation;
 		Drift.Z = 0;
-		BBHeliNextLog = WorldInfo.TimeSeconds + 1.0;
-		`log("[BetterBots][Heli]"@BBHeliPhase@"AGL="$int(AGL)@"VZ="$int(VZ)@"RPM="$int(BBHeli.CurrentRPM)$"/"$int(BBHeli.NormalRPM)@
+		`log("[BetterBots][Heli]"@BBHeliPhase@"AGL="$int(AGL)@"VZ="$int(VZ)@"Spd="$int(Speed)@"Dist="$int(Dist)@
+			"dZ="$int(TargetZ - BBHeli.Location.Z)@"RPM="$int(BBHeli.CurrentRPM)$"/"$int(BBHeli.NormalRPM)@
 			"Coll="$Collective@"Trim="$BBHeliCollectiveTrim@"Pitch="$int(BBHeli.CurrentPitch * 0.0055)@"Roll="$int(BBHeli.CurrentRoll * 0.0055)@
-			"YawErr="$int(YawErr * 0.0055)@"Drift="$int(VSize(Drift))@"In="$InForward$","$InStrafe$","$InYaw);
+			"YawErr="$int(YawErr * 0.0055)@"Hold="$int(VSize(Drift))@"Obst="$(WorldInfo.TimeSeconds < BBHeliObstacleUntil)@
+			"In="$InForward$","$InStrafe$","$InYaw);
 	}
 }
 
@@ -409,13 +624,16 @@ state BBHeliFly
 	{
 		BBHeliPhase = 'Spool';
 		BBHeliPhaseStart = WorldInfo.TimeSeconds;
-		BBHeliTargetAGL = 1500.0;	// 30 m
+		BBHeliFlightStart = WorldInfo.TimeSeconds;
 		BBHeliCollectiveTrim = 0.75;
 		BBHeliTargetYaw = BBHeli.Rotation.Yaw;
 		BBHeliHoldLocation = BBHeli.Location;
+		BBHeliHome = BBHeli.Location;
 		BBHeliMaxAGL = 0;
 		BBHeliNextLog = 0;
-		`log("[BetterBots][Heli] Autopilot engaged at"@BBHeli.Location);
+		BBHeliNextTerrain = 0;
+		BBHeliObstacleUntil = 0;
+		`log("[BetterBots][Heli] Autopilot engaged at"@BBHeli.Location@"mission"@BBHeliMission);
 	}
 
 	event Tick(float DeltaTime)
