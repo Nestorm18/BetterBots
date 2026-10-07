@@ -111,6 +111,19 @@ var		float	BBLastSmokeThrow;
 var		float	BBBoundHoldEnd;
 var		float	BBNextBoundTime;
 
+// Helicopter pilot (phase 0 test: take off, hover, land)
+var		bool				bBBHeliPilot;
+var		ROVehicleHelicopter	BBHeli;
+var		name				BBHeliPhase;		// Spool, Climb, Hover, Descend, Landed, Done
+var		float				BBHeliPhaseStart;
+var		float				BBHeliHoverTime;
+var		float				BBHeliTargetAGL;	// UU above ground
+var		float				BBHeliCollectiveTrim;	// Learned hover collective (0-1)
+var		int					BBHeliTargetYaw;
+var		vector				BBHeliHoldLocation;
+var		float				BBHeliNextLog;
+var		float				BBHeliMaxAGL;
+
 event PostBeginPlay()
 {
 	super.PostBeginPlay();
@@ -136,6 +149,258 @@ function Possess(Pawn aPawn, bool bVehicleTransition)
 	if (Vehicle(aPawn) == none)
 	{
 		BBChooseMode();
+	}
+	else if (bBBHeliPilot && ROVehicleHelicopter(aPawn) != none)
+	{
+		// The stock controller goes BrainDead in vehicles; fly instead
+		BBHeli = ROVehicleHelicopter(aPawn);
+		GotoState('BBHeliFly');
+	}
+}
+
+/*-----------------------------------------------------------------------------
+	Helicopter pilot - phase 0 (BBHeliTest): take off, hover, land
+-----------------------------------------------------------------------------*/
+
+function class<RORoleInfo> BBFindPilotRoleClass()
+{
+	local ROMapInfo ROMI;
+	local array<RORoleCount> Roles;
+	local int i;
+
+	ROMI = ROMapInfo(WorldInfo.GetMapInfo());
+	if (ROMI == none)
+	{
+		return none;
+	}
+	Roles = (GetTeamNum() == `AXIS_TEAM_INDEX) ? ROMI.NorthernRoles : ROMI.SouthernRoles;
+	for (i = 0; i < Roles.Length; i++)
+	{
+		if (Roles[i].RoleInfoClass != none && Roles[i].RoleInfoClass.default.bIsPilot &&
+			!Roles[i].RoleInfoClass.default.bIsTransportPilot)
+		{
+			return Roles[i].RoleInfoClass;
+		}
+	}
+	return none;
+}
+
+/** Makes this bot a pilot and puts it in the helicopter's pilot seat */
+function bool BBStartHeliTest(ROVehicleHelicopter Heli, float HoverSeconds)
+{
+	local ROPlayerReplicationInfo ROPRI;
+	local class<RORoleInfo> PilotClass;
+
+	ROPRI = ROPlayerReplicationInfo(PlayerReplicationInfo);
+	if (ROPRI == none || Pawn == none || Heli == none)
+	{
+		return false;
+	}
+
+	if (ROPRI.RoleInfo == none || !ROPRI.RoleInfo.bIsPilot)
+	{
+		PilotClass = BBFindPilotRoleClass();
+		if (PilotClass == none)
+		{
+			`log("[BetterBots][Heli] No pilot role on this map for team"@GetTeamNum());
+			return false;
+		}
+		LeaveSquad();
+		if (!ROPRI.SelectRoleByClass(self, PilotClass))
+		{
+			`log("[BetterBots][Heli] Could not give pilot role"@PilotClass@"to"@ROPRI.PlayerName);
+			return false;
+		}
+	}
+
+	bBBHeliPilot = true;
+	BBHeliHoverTime = HoverSeconds;
+	if (!Heli.DriverEnter(Pawn))
+	{
+		`log("[BetterBots][Heli] DriverEnter refused for"@ROPRI.PlayerName@"in"@Heli);
+		bBBHeliPilot = false;
+		return false;
+	}
+	`log("[BetterBots][Heli]"@ROPRI.PlayerName@"is flying"@Heli@"hover"@HoverSeconds$"s");
+	return true;
+}
+
+/** Height above ground under the helicopter, in UU */
+function float BBHeliAGL()
+{
+	local vector HitLocation, HitNormal;
+
+	if (Trace(HitLocation, HitNormal, BBHeli.Location - vect(0,0,60000), BBHeli.Location, false) == none)
+	{
+		return 60000.0;
+	}
+	return BBHeli.Location.Z - HitLocation.Z - BBHeli.AltitudeOffset;
+}
+
+function BBHeliSetPhase(name NewPhase)
+{
+	`log("[BetterBots][Heli] Phase"@BBHeliPhase@"->"@NewPhase@"after"@int(WorldInfo.TimeSeconds - BBHeliPhaseStart)$"s");
+	BBHeliPhase = NewPhase;
+	BBHeliPhaseStart = WorldInfo.TimeSeconds;
+}
+
+/**
+ * Autopilot. Collective holds a vertical speed (with a learned hover trim),
+ * cyclic holds the start position (same pitch/roll law as the stock auto-hover,
+ * driven by velocity error), pedals hold the start heading.
+ */
+function BBHeliControl(float DeltaTime)
+{
+	local vector X, Y, Z, VelNoZ, DesiredVel, VelErr, ToHold;
+	local float AGL, VZ, DesiredVZ, Collective, SpeedNorm, TargetPitch, TargetRoll;
+	local float InForward, InStrafe, InYaw;
+	local int YawErr;
+
+	if (BBHeli == none || BBHeli.Health <= 0 || Pawn != BBHeli)
+	{
+		`log("[BetterBots][Heli] Lost the helicopter (destroyed or left), phase"@BBHeliPhase);
+		bBBHeliPilot = false;
+		GotoState('FindNextState');
+		return;
+	}
+
+	AGL = BBHeliAGL();
+	VZ = BBHeli.Velocity.Z;
+	BBHeliMaxAGL = FMax(BBHeliMaxAGL, AGL);
+
+	// --- Phase logic ---
+	switch (BBHeliPhase)
+	{
+		case 'Spool':
+			if (BBHeli.CurrentRPM >= BBHeli.NormalRPM * 0.95 || WorldInfo.TimeSeconds - BBHeliPhaseStart > 25.0)
+			{
+				BBHeliSetPhase('Climb');
+			}
+			break;
+		case 'Climb':
+			if (AGL > BBHeliTargetAGL * 0.9)
+			{
+				BBHeliSetPhase('Hover');
+			}
+			else if (WorldInfo.TimeSeconds - BBHeliPhaseStart > 40.0)
+			{
+				`log("[BetterBots][Heli] Climb timed out at AGL"@int(AGL));
+				BBHeliSetPhase('Descend');
+			}
+			break;
+		case 'Hover':
+			if (WorldInfo.TimeSeconds - BBHeliPhaseStart > BBHeliHoverTime)
+			{
+				BBHeliSetPhase('Descend');
+			}
+			break;
+		case 'Descend':
+			if (BBHeli.bVehicleOnGround || BBHeli.bWasChassisTouchingGroundLastTick)
+			{
+				BBHeliSetPhase('Landed');
+			}
+			break;
+		case 'Landed':
+			if (WorldInfo.TimeSeconds - BBHeliPhaseStart > 3.0)
+			{
+				`log("[BetterBots][Heli] TEST DONE. Max AGL"@int(BBHeliMaxAGL)@"UU, drift from start"@int(VSize(BBHeli.Location - BBHeliHoldLocation))@"UU, health"@BBHeli.Health);
+				BBHeliSetPhase('Done');
+			}
+			break;
+	}
+
+	// --- Collective (vertical) ---
+	if (BBHeliPhase == 'Spool' || BBHeliPhase == 'Landed' || BBHeliPhase == 'Done')
+	{
+		Collective = 0.0;
+	}
+	else
+	{
+		if (BBHeliPhase == 'Descend')
+		{
+			DesiredVZ = (AGL > 600.0) ? -250.0 : -120.0;
+		}
+		else
+		{
+			DesiredVZ = FClamp((BBHeliTargetAGL - AGL) * 0.8, -300.0, 300.0);
+		}
+		// Learn the hover point slowly, then add a proportional term
+		BBHeliCollectiveTrim = FClamp(BBHeliCollectiveTrim + 0.0004 * (DesiredVZ - VZ) * DeltaTime, 0.4, 0.98);
+		Collective = FClamp(BBHeliCollectiveTrim + 0.0015 * (DesiredVZ - VZ), 0.0, 1.0);
+	}
+
+	// --- Cyclic (horizontal), only once airborne ---
+	if (BBHeliPhase == 'Climb' || BBHeliPhase == 'Hover' || BBHeliPhase == 'Descend')
+	{
+		GetAxes(BBHeli.Rotation, X, Y, Z);
+		X.Z = 0;
+		Y.Z = 0;
+		X = Normal(X);
+		Y = Normal(Y);
+
+		ToHold = BBHeliHoldLocation - BBHeli.Location;
+		ToHold.Z = 0;
+		DesiredVel = ToHold * 0.5;
+		if (VSize(DesiredVel) > 300.0)
+		{
+			DesiredVel = Normal(DesiredVel) * 300.0;
+		}
+
+		VelNoZ = BBHeli.Velocity;
+		VelNoZ.Z = 0;
+		VelErr = VelNoZ - DesiredVel;
+		SpeedNorm = FMax(BBHeli.MaxSpeed * 0.75, 1500.0);
+
+		// Same law as ROVehicleHelicopter.HandleHoverInputs
+		TargetPitch = FClamp((VelErr dot X) / SpeedNorm, -1.0, 1.0) * BBHeli.MaxAutoHoverPitch;
+		TargetRoll = FClamp((VelErr dot Y) / SpeedNorm, -1.0, 1.0) * BBHeli.MaxAutoHoverRoll;
+		InForward = FClamp((BBHeli.CurrentPitch - TargetPitch) / BBHeli.MaxAutoHoverPitch, -1.0, 1.0);
+		InStrafe = FClamp((BBHeli.CurrentRoll - TargetRoll) / BBHeli.MaxAutoHoverRoll, -1.0, 1.0);
+
+		// Pedals: hold the start heading
+		YawErr = NormalizeRotAxis(BBHeliTargetYaw - BBHeli.Rotation.Yaw);
+		InYaw = FClamp(YawErr / 8192.0, -0.5, 0.5);
+	}
+
+	// The stock auto-hover would overwrite our cyclic inputs
+	if (BBHeli.bAutoHover)
+	{
+		BBHeli.ToggleAutoHover();
+	}
+	BBHeli.SetHeloInputs(InForward, InStrafe, 0, 0, Collective, InYaw);
+
+	if (WorldInfo.TimeSeconds >= BBHeliNextLog)
+	{
+		BBHeliNextLog = WorldInfo.TimeSeconds + 1.0;
+		`log("[BetterBots][Heli]"@BBHeliPhase@"AGL="$int(AGL)@"VZ="$int(VZ)@"RPM="$int(BBHeli.CurrentRPM)$"/"$int(BBHeli.NormalRPM)@
+			"Coll="$Collective@"Trim="$BBHeliCollectiveTrim@"Pitch="$int(BBHeli.CurrentPitch * 0.0055)@"Roll="$int(BBHeli.CurrentRoll * 0.0055)@
+			"YawErr="$int(YawErr * 0.0055)@"Drift="$int(VSize(BBHeli.Location - BBHeliHoldLocation))@"In="$InForward$","$InStrafe$","$InYaw);
+	}
+}
+
+state BBHeliFly
+{
+	ignores SeePlayer, HearNoise, EnemyNotVisible;
+
+	function EvaluateObjectives() {}
+
+	event BeginState(Name PreviousStateName)
+	{
+		BBHeliPhase = 'Spool';
+		BBHeliPhaseStart = WorldInfo.TimeSeconds;
+		BBHeliTargetAGL = 1500.0;	// 30 m
+		BBHeliCollectiveTrim = 0.75;
+		BBHeliTargetYaw = BBHeli.Rotation.Yaw;
+		BBHeliHoldLocation = BBHeli.Location;
+		BBHeliMaxAGL = 0;
+		BBHeliNextLog = 0;
+		`log("[BetterBots][Heli] Autopilot engaged at"@BBHeli.Location);
+	}
+
+	event Tick(float DeltaTime)
+	{
+		global.Tick(DeltaTime);
+		BBHeliControl(DeltaTime);
 	}
 }
 

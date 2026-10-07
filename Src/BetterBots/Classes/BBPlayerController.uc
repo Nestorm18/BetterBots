@@ -67,6 +67,70 @@ reliable protected server function ServerJoinSquad(int NewSquadIndex, optional b
 	super.ServerJoinSquad(NewSquadIndex, bViaInvite);
 }
 
+/**
+ * Helicopter phase 0 test: a friendly bot takes a free attack helicopter
+ * (Cobra preferred), climbs to 30 m, hovers, and lands. See the log.
+ */
+exec function BBHeliTest(optional float HoverSeconds)
+{
+	local ROVehicleHelicopter H, Best;
+	local BBAIController Bot, BestBot;
+	local ROPlayerReplicationInfo BotPRI;
+	local float DistSq, BestDistSq;
+
+	if (HoverSeconds <= 0)
+	{
+		HoverSeconds = 30;
+	}
+	Best = none;
+
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
+	{
+		if (H.Health > 0 && !H.bTransportHelicopter && H.Driver == none)
+		{
+			if (Best == none || (ROHeli_AH1G(H) != none && ROHeli_AH1G(Best) == none))
+			{
+				Best = H;
+			}
+		}
+	}
+	if (Best == none)
+	{
+		ClientMessage("[BetterBots] No free attack helicopter on this map");
+		return;
+	}
+
+	BestDistSq = 1000000000000.0;
+	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
+	{
+		BotPRI = ROPlayerReplicationInfo(Bot.PlayerReplicationInfo);
+		if (Bot.GetTeamNum() == Best.GetTeamNum() && Bot.Pawn != none && Bot.Pawn.Health > 0 &&
+			Vehicle(Bot.Pawn) == none && BotPRI != none && BotPRI.RoleInfo != none && !BotPRI.RoleInfo.bIsTeamLeader)
+		{
+			DistSq = VSizeSq(Bot.Pawn.Location - Best.Location);
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				BestBot = Bot;
+			}
+		}
+	}
+	if (BestBot == none)
+	{
+		ClientMessage("[BetterBots] No bot available on the helicopter's team");
+		return;
+	}
+
+	if (BestBot.BBStartHeliTest(Best, HoverSeconds))
+	{
+		ClientMessage("[BetterBots]"@BestBot.PlayerReplicationInfo.PlayerName@"is flying"@Best.Class.Name);
+	}
+	else
+	{
+		ClientMessage("[BetterBots] Heli test failed to start, see Launch.log");
+	}
+}
+
 exec function BBLeader()
 {
 	local ROPlayerReplicationInfo ROPRI;
