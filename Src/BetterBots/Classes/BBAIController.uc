@@ -118,6 +118,8 @@ var		float	BBNextZoneReeval;			// Next time a bot in a zone reconsiders its obje
 var		float	BBNextHeliCheck;			// Reaction to enemy helicopters
 var		float	BBNextRocketAtHeli;
 var		Actor	BBSuppressActor;			// Moving target for BBSuppressing (a helicopter)
+var		float	BBLastSpawnFix;				// Off-navmesh recovery (replaces the stock random-spawn teleport)
+var		vector	BBBadStartLoc;
 
 event PostBeginPlay()
 {
@@ -148,6 +150,56 @@ function Possess(Pawn aPawn, bool bVehicleTransition)
 	}
 }
 
+
+/*-----------------------------------------------------------------------------
+	Off the navmesh: the stock code teleports the bot to a RANDOM spawn point
+	every time it checks objectives. Where spawn points are off the navmesh
+	(e.g. some heli bases) bots bounce from spawn to spawn forever. Here: the
+	nearest spawn point that really is on the navmesh, at most every 20 s.
+-----------------------------------------------------------------------------*/
+
+function MoveAIToValidSpawnLocation()
+{
+	local PlayerStart P;
+	local vector Best;
+	local float D, BestD;
+
+	if (Pawn == none || Vehicle(Pawn) != none || Pawn.Health <= 0 || WorldInfo.TimeSeconds - BBLastSpawnFix < 20.0)
+	{
+		return;
+	}
+	BBLastSpawnFix = WorldInfo.TimeSeconds;
+
+	BestD = 1000000000.0;
+	foreach WorldInfo.AllNavigationPoints(class'PlayerStart', P)
+	{
+		if (!P.bEnabled || P.TeamIndex != GetTeamNum() || VSizeSq(P.Location - BBBadStartLoc) < 90000.0)
+		{
+			continue;
+		}
+		if (class'NavigationHandle'.static.GetPylonFromPos(P.Location) == none)
+		{
+			continue;
+		}
+		D = VSizeSq(P.Location - Pawn.Location);
+		// The spot we're standing on is the problem: not that one again
+		if (D < 22500.0)
+		{
+			continue;
+		}
+		if (D < BestD)
+		{
+			BestD = D;
+			Best = P.Location;
+		}
+	}
+	if (BestD < 1000000000.0 && Pawn.SetLocation(Best))
+	{
+		`log("[BetterBots]"@GetPName()@"off the navmesh, moved to the nearest spawn on it ("$int(Sqrt(BestD))@"UU)");
+		BBBadStartLoc = Best;
+		FindNewObjective();
+	}
+}
 
 function BBChooseMode()
 {
