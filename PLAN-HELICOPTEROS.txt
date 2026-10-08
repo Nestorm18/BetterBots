@@ -216,3 +216,59 @@ FASE 5 - Realismo                                   Dificultad: alta
   cambios de mision, motivo de vuelta a base, choques.
 - Mapas de prueba: CuChi (abierto), HueCity (urbano), Hill937 (montana),
   Firebase (base con helipuerto).
+
+
+12. DECISIONES DEL JUGADOR (08-10-2026) - se implementa todo junto
+-------------------------------------------------------------------
+Activacion y prioridad humana
+- Automatico en toda partida con helis. Los bots esperan 30 s desde
+  que el jugador aparece antes de coger roles/helis libres.
+- Los bots pueden ocupar todas las plazas de piloto.
+- Si eliges un rol de piloto ocupado por bots: te cede la plaza un
+  bot en tierra; si no hay, el heli mas cercano a la base vuelve,
+  aterriza y su piloto te deja rol y heli. Aviso en pantalla.
+- Si estas con rol de piloto a menos de 15 m de un heli de bot posado,
+  el bot se baja y te lo deja. Sin rol de piloto no pasa nada.
+- Si pilotas tu el Cobra/Bushranger: bot artillero si queda plaza
+  de piloto libre; si no, vas sin artillero.
+- Artillero del Cobra (rol piloto): solo si sobran plazas despues
+  de cubrir a todos los pilotos.
+- Derribos: cuando el heli reaparece, otro bot lo coge.
+- Todas las bases tienen zona de recarga.
+
+Transporte (todos los Huey de transporte)
+- Espera en base: despega con 3+ pasajeros o a los 60 s; si vas tu
+  a bordo, a los 10 s como mucho.
+- Suben bots que reaparecen en base, salvo si su objetivo esta a
+  menos de 300 m (van andando). Tambien te lleva a ti.
+- LZ variada, a 150-300 m del objetivo, del lado propio; cuanto mas
+  peligro registrado en la zona, mas lejos. Si le disparan al bajar,
+  aborta y busca otra LZ (mas lejos).
+- Posado en LZ hasta que bajen todos, maximo 8 s.
+- Ametralladores de puerta (bots): disparan en vuelo y en la LZ.
+
+Memoria de amenazas
+- Cada disparo/dano recibido por un heli suma peligro en ese punto.
+- Compartida por todos los helis del equipo; se olvida en ~3 min.
+
+Cobra
+- Blancos: antiaereo/ametralladoras pesadas > enemigos capturando >
+  marcas del Loach > resto. Ataca tambien armas fijas ocupadas.
+- Espera a 80-120 m de altura y 600-1000 m del combate.
+- Prudente: no dispara con aliados a <50 m del blanco; se retira si
+  recibe mucho fuego.
+
+Loach
+- Orbita variada, prioriza media altura (30-50 m).
+- Marca enemigos en el mapa (aviso de enemigo avistado) y el Cobra
+  los ataca. Sin pasajero.
+
+Bushranger
+- Pilotado por bot: orbita lateral con ametralladores de puerta,
+  cohetes si tiene. Sin pasajeros.
+- Pilotado por ti: los bots se suben de pasajeros en base y se bajan
+  cuando aterrizas cerca de un objetivo (igual en el Huey).
+
+Bando norvietnamita
+- Mas bots apuntan con RPG/ametralladora a los helis; los que no
+  pueden danarlo se esconden al oirlo cerca.
