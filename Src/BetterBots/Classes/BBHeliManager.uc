@@ -1619,8 +1619,8 @@ function bool BBPickLZ(ROVehicleHelicopter H, float ExtraDist, out vector LZ)
 	{
 		// First tries: strict flat ground near the planned spot; then wider and less picky
 		bLoose = i >= 24;
-		Ang = (FRand() - 0.5) * (bLoose ? 3.0 : 1.6);	// +-46 deg from the line to our base (+-86 later)
-		D = BaseDist * (bLoose ? (0.5 + 1.1 * FRand()) : (0.8 + 0.4 * FRand()));
+		Ang = (FRand() - 0.5) * (bLoose ? 2.2 : 1.6);	// +-46 deg from the line to our base (+-63 later)
+		D = FMin(BaseDist * (bLoose ? (0.5 + 1.1 * FRand()) : (0.8 + 0.4 * FRand())), FMax(MaxDist, 5000.0));
 		Cand = Center + (Dir * Cos(Ang) + (vect(0,0,1) cross Dir) * Sin(Ang)) * D;
 		if (!BBIsLandable(Cand, Land, bLoose) || BBLZTaken(H, Land))
 		{

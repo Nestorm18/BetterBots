@@ -139,6 +139,7 @@ var		float				BBHeliNextRoute;
 // Transport
 var		vector				BBHeliLZ;
 var		float				BBHeliNextLZTry;
+var		bool				bBBHeliLZCommit;	// Already moved the LZ once: land no matter what
 var		float				BBHeliLZExtra;
 var		float				BBHeliHumanAboardSince;
 var		float				BBHeliNextWaitMsg;
@@ -2397,6 +2398,7 @@ function BBHeliLiftWait()
 		BBHeliNextLZTry = WorldInfo.TimeSeconds + 5.0;
 		return;
 	}
+	bBBHeliLZCommit = false;
 	`log("[BetterBots][Heli]"@BBName()@"lifting"@NumPass@"passengers ("$NumHumans@"human) to LZ"@BBHeliLZ@
 		"dist"@int(BBHeliDist2D(BBHeliLZ)));
 	BBHeliTellPassengers("[BetterBots] Despegamos hacia la zona de aterrizaje");
@@ -2430,7 +2432,14 @@ function bool BBHeliLiftAbortCheck()
 {
 	local vector NewLZ;
 
-	if (BBHeliLegDamage < 15.0 || BBHeliDist2D(BBHeliLZ) > 9000.0 || BBHeliLZ == vect(0,0,0))
+	if (BBHeliLZ == vect(0,0,0) || BBHeliDist2D(BBHeliLZ) > 9000.0)
+	{
+		return false;
+	}
+	// Only a real beating counts, and once committed (already moved the LZ once,
+	// or on the way down) we force the landing unless the heli is about to go
+	if (BBHeli.Health >= BBHeli.HealthMax * 0.35 && !BBHeliEmergency() &&
+		(BBHeliLegDamage < 60.0 || bBBHeliLZCommit || BBHeliTask == 'Descend'))
 	{
 		return false;
 	}
@@ -2438,7 +2447,7 @@ function bool BBHeliLiftAbortCheck()
 	{
 		BBHM.BBAddThreat(GetTeamNum(), BBHeliLZ, 40.0);
 	}
-	if (BBHeli.Health < BBHeli.HealthMax * 0.5 || BBHeliEmergency())
+	if (BBHeli.Health < BBHeli.HealthMax * 0.35 || BBHeliEmergency())
 	{
 		`log("[BetterBots][Heli]"@BBName()@"LZ too hot and badly damaged, back to base with the passengers");
 		BBHeliTellPassengers("[BetterBots] Zona de aterrizaje bajo fuego, volvemos a base");
@@ -2447,19 +2456,19 @@ function bool BBHeliLiftAbortCheck()
 		return true;
 	}
 	BBHeliLZExtra += 4000.0;
-	if (BBGetHM() != none && BBHM.BBPickLZ(BBHeli, BBHeliLZExtra, NewLZ))
+	bBBHeliLZCommit = true;
+	if (BBGetHM() != none && BBHM.BBPickLZ(BBHeli, BBHeliLZExtra, NewLZ) && VSize2D(NewLZ - BBHeliLZ) < 15000.0)
 	{
-		`log("[BetterBots][Heli]"@BBName()@"LZ under fire, new LZ further back"@NewLZ);
+		`log("[BetterBots][Heli]"@BBName()@"LZ under fire, new LZ further back"@NewLZ@"(this one will be forced)");
 		BBHeliTellPassengers("[BetterBots] Fuego en la zona de aterrizaje, buscamos otra");
 		BBHeliLZ = NewLZ;
 		BBHeliSetTask('Transit');
+		return true;
 	}
-	else
-	{
-		BBHeliLZ = vect(0,0,0);
-		BBHeliSetTask('RTB');
-	}
-	return true;
+	// Nowhere better close by: go in anyway
+	`log("[BetterBots][Heli]"@BBName()@"no other LZ nearby, forcing the landing");
+	BBHeliTellPassengers("[BetterBots] Aterrizaje forzado bajo fuego, preparados");
+	return false;
 }
 
 /*-----------------------------------------------------------------------------
