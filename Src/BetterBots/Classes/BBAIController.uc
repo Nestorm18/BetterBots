@@ -1246,6 +1246,12 @@ function float GetReactionTimeScale()
 	return super.GetReactionTimeScale() * (1.0 + 0.8 * GetSuppression() / 100.0);
 }
 
+/** Pilots use it to decide when to break off and go home */
+function float BBHeliMorale()
+{
+	return BBCourage();
+}
+
 function float BBCourage()
 {
 	return (BBBravery + BBMorale) * 0.5;

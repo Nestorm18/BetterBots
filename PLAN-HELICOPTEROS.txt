@@ -11,6 +11,9 @@ vuelo a puntos, Cobra (pasadas + artillero), Loach (orbita + marcas +
 minigun), Bushranger (orbita con puertas), Huey (transporte a LZ),
 recarga/reparacion en base, memoria de peligro, evasion, aterrizaje de
 emergencia, prioridad humana y reaccion norvietnamita.
+Anadido despues: tiros lejanos, tacticas adaptativas por bajas, moral en
+la retirada, Cobra contra quien dispara a un heli aliado, aviso/marca del
+Loach, planeo hacia la base sin motor y comando BBHeliDebug.
 Codigo: BBHeliManager.uc (coordinacion) y BBHeliAI.uc (vuelo y tripulacion).
 
 

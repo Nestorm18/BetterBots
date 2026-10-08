@@ -87,7 +87,8 @@ var		int					BBHeliTacticKills[2];
 var		int					BBHeliRunKills;		// Kills since the last attack started
 var		int					BBHeliDryRuns;		// Attacks in a row without kills
 var		bool				bBBHeliHadRun;
-var		float				BBHeliNextTacticReview;		// Re-entering BBHeliFly after a stray state change
+var		float				BBHeliNextTacticReview;
+var		float				BBHeliNextStrikeCall;	// Rate limit for "attack whoever shot me" requests		// Re-entering BBHeliFly after a stray state change
 var		vector				BBHeliStandoffCenter;
 
 // Autopilot target
@@ -1061,8 +1062,21 @@ function BBHeliMonitorDamage(float DeltaTime)
 	}
 	`log("[BetterBots][Heli]"@BBName()@"hit for"@Dmg@"health"@BBHeli.Health@"from"@Src);
 
-	// Hit hard in combat: break away
-	if (BBHeliRecentDamage > 35.0 && BBHeliIsCombatTask() && BBHeliTask != 'Evade' && BBHeliMission != 'Lift' &&
+	// Known shooter: the Loach marks it, and every heli calls the attack helis on it
+	if (BBHeli.LastHitBy != none && BBHeli.LastHitBy.Pawn != none && BBHeli.LastHitBy.GetTeamNum() != GetTeamNum() &&
+		BBHeli.LastHitBy.Pawn.Health > 0 && WorldInfo.TimeSeconds > BBHeliNextStrikeCall && BBGetHM() != none)
+	{
+		BBHeliNextStrikeCall = WorldInfo.TimeSeconds + 5.0;
+		if (BBHeliMission == 'Scout')
+		{
+			BBHM.BBAddMark(GetTeamNum(), BBHeli.LastHitBy.Pawn);
+			AIDoEnemySpotted(BBHeli.LastHitBy.Pawn.Location, BBHeli.LastHitBy.Pawn);
+		}
+		BBHM.BBRequestStrike(BBHeli, BBHeli.LastHitBy.Pawn);
+	}
+
+	// Hit hard in combat: break away (shaken pilots sooner)
+	if (BBHeliRecentDamage > 20.0 + 30.0 * FClamp(BBHeliMorale(), 0.0, 1.0) && BBHeliIsCombatTask() && BBHeliTask != 'Evade' && BBHeliMission != 'Lift' &&
 		BBHeliMission != 'Test' && BBHeliMission != 'Goto')
 	{
 		BBHeliStartEvade(Src);
@@ -1150,14 +1164,24 @@ function bool BBHeliAmmoLow()
 	return false;
 }
 
+/** 0-1, overridden by BBAIController with the bot's courage (bravery + morale) */
+function float BBHeliMorale()
+{
+	return 0.5;
+}
+
 function bool BBHeliNeedsRearm()
 {
+	local float HealthLimit;
+
 	if (BBHeliMission != 'Attack' && BBHeliMission != 'Scout' && BBHeliMission != 'Gunship')
 	{
 		return false;
 	}
+	// Brave pilots stay until 40 % health, shaken ones head home at 70 %
+	HealthLimit = 0.4 + 0.3 * (1.0 - FClamp(BBHeliMorale(), 0.0, 1.0));
 	return BBHeliAmmoLow() || BBHeli.bEngineDamaged || BBHeli.bMainRotorDamaged || BBHeli.bTailRotorDamaged ||
-		BBHeli.Health < BBHeli.HealthMax * 0.5 || BBHeliCrewHurt();
+		BBHeli.Health < BBHeli.HealthMax * HealthLimit || BBHeliCrewHurt();
 }
 
 function bool BBHeliEmergency()
@@ -1422,6 +1446,31 @@ function NotifyKilled(Controller Killer, Controller Killed, Pawn KilledPawn, cla
 	}
 }
 
+/** A friendly heli is being shot: go after the shooter (attack helis with ammo) */
+function bool BBHeliTakeStrike()
+{
+	local Pawn P;
+
+	if ((BBHeliMission != 'Attack' && BBHeliMission != 'Gunship') || !(BBHeliHasAmmo(0) || BBHeliHasAmmo(1)) || BBGetHM() == none)
+	{
+		return false;
+	}
+	if (BBHeliMission == 'Gunship' && !BBHeliHasAmmo(0))
+	{
+		return false;
+	}
+	P = BBHM.BBTakeStrike(BBHeli, 45000.0);
+	if (P == none)
+	{
+		return false;
+	}
+	BBHeliTarget = P;
+	BBHeliTargetLoc = P.Location;
+	`log("[BetterBots][Heli]"@BBName()@"answering a call: attacking the shooter"@P);
+	BBHeliStartRun();
+	return true;
+}
+
 function BBHeliStartRun()
 {
 	local ROVehicleWeapon G;
@@ -1641,6 +1690,10 @@ function BBHeliThink()
 				// Slow circle, never a static hover in the combat area
 				BBNavOrbit(BBHeliStandoff, 1800.0, 1000.0, BBHeliStandoffAGL);
 			}
+			if (BBHeliTakeStrike())
+			{
+				break;
+			}
 			if (WorldInfo.TimeSeconds > BBHeliNextRun && (BBHeliHasAmmo(0) || BBHeliHasAmmo(1)) && BBHeliFindRunTarget(45000.0))
 			{
 				BBHeliStartRun();
@@ -1668,6 +1721,10 @@ function BBHeliThink()
 				{
 					BBHeliStartRun();
 				}
+			}
+			else if (BBHeliTakeStrike())
+			{
+				break;
 			}
 			else if (WorldInfo.TimeSeconds > BBHeliNextRun && BBHeliHasAmmo(0) && BBHeliFindRunTarget(30000.0) &&
 				BBGetHM() != none && BBHM.BBIsAirThreat(BBHeliTarget))
@@ -1755,7 +1812,16 @@ function BBHeliThink()
 			break;
 
 		case 'Emergency':
-			BBNavDescend(BBHeli.Location);
+			// Engine out with a working rotor: glide down toward our base
+			// (autorotation). Rotors gone: straight down where we are.
+			if (!BBHeli.bMainRotorDestroyed && !BBHeli.bTailRotorDestroyed && AGL > 700.0 && BBHeliDist2D(BBHeliHome) > 3000.0)
+			{
+				BBNavVelocity(Normal(BBHeliHome - BBHeli.Location) * 1200.0, 100.0);
+			}
+			else
+			{
+				BBNavDescend(BBHeli.Location);
+			}
 			if (BBHeli.bVehicleOnGround || BBHeli.bWasChassisTouchingGroundLastTick)
 			{
 				BBHeliSetTask('Landed');

@@ -35,6 +35,14 @@ struct BBMark
 	var byte	Team;
 };
 
+struct BBStrike
+{
+	var Pawn				P;
+	var float				Time;
+	var byte				Team;
+	var ROVehicleHelicopter	Caller;
+};
+
 const BB_ThreatLife			= 180.0;	// Seconds until a danger spot is forgotten
 const BB_MarkLife			= 20.0;
 const BB_HumanGrace			= 30.0;		// Seconds the human gets to pick a pilot role first
@@ -45,6 +53,9 @@ const BB_FrontFarDist		= 15000.0;	// 300 m: closer than this, bots walk instead 
 
 var array<BBThreat>	Threats;
 var array<BBMark>	Marks;
+var array<BBStrike>	Strikes;			// "Someone is shooting at me" calls for the attack helis
+var bool			bDebugDraw;
+var float			NextDebugText;
 var float			HumanSpawnTime;		// First time the human had a pawn (-1 = not yet)
 var float			StartTime;
 
@@ -858,6 +869,13 @@ function BBExpireMemory()
 			Threats.Remove(i, 1);
 		}
 	}
+	for (i = Strikes.Length - 1; i >= 0; i--)
+	{
+		if (WorldInfo.TimeSeconds - Strikes[i].Time > 40.0 || Strikes[i].P == none || Strikes[i].P.Health <= 0)
+		{
+			Strikes.Remove(i, 1);
+		}
+	}
 	for (i = Marks.Length - 1; i >= 0; i--)
 	{
 		if (WorldInfo.TimeSeconds - Marks[i].Time > BB_MarkLife || Marks[i].P == none || Marks[i].P.Health <= 0)
@@ -978,6 +996,69 @@ function BBAddMark(byte Team, Pawn P)
 	Marks[i].Loc = P.Location;
 	Marks[i].Time = WorldInfo.TimeSeconds;
 	Marks[i].Team = Team;
+}
+
+/**
+ * A heli of Caller's team is being shot by Shooter: attack helis (bot or
+ * human, who gets a message) should go after it.
+ */
+function BBRequestStrike(ROVehicleHelicopter Caller, Pawn Shooter)
+{
+	local int i;
+	local PlayerController PC;
+	local ROVehicleHelicopter H;
+	local byte Team;
+
+	Team = Caller.GetTeamNum();
+	for (i = 0; i < Strikes.Length; i++)
+	{
+		if (Strikes[i].P == Shooter && Strikes[i].Team == Team)
+		{
+			Strikes[i].Time = WorldInfo.TimeSeconds;
+			return;
+		}
+	}
+	i = Strikes.Length;
+	Strikes.Length = i + 1;
+	Strikes[i].P = Shooter;
+	Strikes[i].Time = WorldInfo.TimeSeconds;
+	Strikes[i].Team = Team;
+	Strikes[i].Caller = Caller;
+	`log("[BetterBots][Heli]"@HeliName(Caller)@"under fire from"@Shooter@"- calling the attack helis");
+
+	// Humans flying an attack heli get the call too
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
+	{
+		PC = PlayerController(H.Controller);
+		if (PC != none && H != Caller && H.GetTeamNum() == Team && !H.bTransportHelicopter)
+		{
+			PC.ClientMessage("[BetterBots]"@HeliName(Caller)@"bajo fuego: tirador marcado en el mapa");
+		}
+	}
+}
+
+/** Takes the newest strike call this heli can answer (in range, visible, no friendlies there) */
+function Pawn BBTakeStrike(ROVehicleHelicopter H, float Range)
+{
+	local int i;
+	local Pawn P;
+
+	for (i = Strikes.Length - 1; i >= 0; i--)
+	{
+		P = Strikes[i].P;
+		if (Strikes[i].Team != H.GetTeamNum() || Strikes[i].Caller == H || P == none || P.Health <= 0)
+		{
+			continue;
+		}
+		if (VSize(P.Location - H.Location) > Range || !FastTrace(P.Location + vect(0,0,40), H.Location - vect(0,0,150)) ||
+			BBFriendliesNear(H.GetTeamNum(), P.Location, 2500.0))
+		{
+			continue;
+		}
+		Strikes.Remove(i, 1);
+		return P;
+	}
+	return none;
 }
 
 function bool BBIsMarked(byte Team, Pawn P)
@@ -1254,6 +1335,103 @@ function bool BBPickLZ(ROVehicleHelicopter H, float ExtraDist, out vector LZ)
 	}
 	LZ = BestLand;
 	return true;
+}
+
+/*-----------------------------------------------------------------------------
+	Debug drawing (BBHeliDebug)
+-----------------------------------------------------------------------------*/
+
+function BBToggleDebug(PlayerController PC)
+{
+	bDebugDraw = !bDebugDraw;
+	if (bDebugDraw)
+	{
+		SetTimer(0.5, true, 'BBDebugTick');
+		PC.ClientMessage("[BetterBots] Depuracion de helicopteros ACTIVADA (BBHeliDebug para quitar)");
+		PC.ClientMessage("[BetterBots] Verde=ruta  Azul=base  Amarillo=LZ  Rojo=blanco/peligro  Cian=espera Cobra  Naranja=marcas  Blanco=deteccion obstaculos");
+	}
+	else
+	{
+		ClearTimer('BBDebugTick');
+		FlushPersistentDebugLines();
+		PC.ClientMessage("[BetterBots] Depuracion de helicopteros desactivada");
+	}
+}
+
+function BBDebugTick()
+{
+	local BBAIController Bot;
+	local ROVehicleHelicopter H;
+	local PlayerController PC;
+	local int i;
+	local bool bText;
+	local string S;
+
+	FlushPersistentDebugLines();
+	bText = WorldInfo.TimeSeconds > NextDebugText;
+	if (bText)
+	{
+		NextDebugText = WorldInfo.TimeSeconds + 5.0;
+		foreach WorldInfo.AllControllers(class'PlayerController', PC)
+		{
+			break;
+		}
+	}
+
+	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
+	{
+		if (!Bot.BBIsFlyingHeli())
+		{
+			continue;
+		}
+		H = Bot.BBHeli;
+		// Where the autopilot is going
+		if (Bot.BBNavMode == 3)
+		{
+			DrawDebugLine(H.Location, H.Location + Bot.BBNavVel * 2.0, 0, 255, 0, true);
+		}
+		else if (Bot.BBNavMode != 0)
+		{
+			DrawDebugLine(H.Location, Bot.BBNavPoint, 0, 255, 0, true);
+		}
+		// Obstacle look-ahead (2.5 s of flight)
+		DrawDebugLine(H.Location, H.Location + H.Velocity * 2.5 - vect(0,0,200), 255, 255, 255, true);
+		DrawDebugLine(H.Location, Bot.BBHeliHome, 0, 0, 255, true);
+		if (Bot.BBHeliLZ != vect(0,0,0))
+		{
+			DrawDebugLine(H.Location, Bot.BBHeliLZ, 255, 255, 0, true);
+			DrawDebugSphere(Bot.BBHeliLZ, 650.0, 12, 255, 255, 0, true);
+		}
+		if (Bot.BBHeliTask == 'RunIn')
+		{
+			DrawDebugLine(H.Location, Bot.BBHeliTargetLoc, 255, 0, 0, true);
+		}
+		if (Bot.BBHeliMission == 'Attack')
+		{
+			DrawDebugSphere(Bot.BBHeliStandoff, 1800.0, 12, 0, 255, 255, true);
+		}
+		if (bText && PC != none)
+		{
+			S = Bot.PlayerReplicationInfo.PlayerName@HeliName(H)@Bot.BBHeliTask@"alt"@int(Bot.BBHeliAGL() / 50.0)$"m vel"@
+				int(VSize(H.Velocity) * 0.072)$"km/h HP"@H.Health;
+			if (Bot.BBHeliTask == 'RunIn')
+			{
+				S = S@(Bot.bBBHeliLongShot ? "(tiro lejano)" : "(pasada)");
+			}
+			PC.ClientMessage("[Heli]"@S);
+		}
+	}
+	for (i = 0; i < Threats.Length; i++)
+	{
+		DrawDebugSphere(Threats[i].Loc, 300.0 + FMin(Threats[i].Amount, 100.0) * 20.0 * BBFade(Threats[i].Time), 8, 255, 0, 0, true);
+	}
+	for (i = 0; i < Marks.Length; i++)
+	{
+		if (Marks[i].P != none)
+		{
+			DrawDebugSphere(Marks[i].P.Location, 80.0, 6, 255, 128, 0, true);
+		}
+	}
 }
 
 defaultproperties

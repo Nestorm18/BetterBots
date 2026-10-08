@@ -78,6 +78,11 @@ HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
      vuelve. Si hay fuego en la zona, aterriza más lejos.
    - Vuelven a base a recargar y reparar (munición <20 %, daños,
      tripulación herida). Esquivan zonas donde les han disparado.
+   - Si disparan a un helicóptero, el Loach marca al tirador y el
+     Cobra/Bushranger va a por él. Si pilotas un Cobra te avisa.
+   - Pilotos con la moral baja se retiran antes. Sin motor, planean
+     hacia su base al caer.
+   - Ataques: pasadas o tiros lejanos; mantienen el que da bajas.
    Tú tienes prioridad:
    - Elige un rol de piloto ocupado por bots: un bot en tierra te lo
      cede al momento; si todos vuelan, uno vuelve a base y te lo deja.
@@ -88,6 +93,9 @@ HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
 
 COMANDOS DE HELICOPTERO (consola, para pruebas)
    BBHeliInfo      Lista los helicópteros, su piloto y lo que hacen.
+   BBHeliDebug     Activa/desactiva el modo depuración: dibuja rutas,
+                   zonas de aterrizaje, peligro, blancos y marcas, y
+                   lista cada 5 s lo que hace cada piloto bot.
    BBHeliTest      Un bot despega en un Cobra/Loach libre, se queda
                    30 s a 30 m y aterriza. (BBHeliTest 60 = 60 s)
    BBHeliGoto      El bot que vuela viene hasta donde estás, espera

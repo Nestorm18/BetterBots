@@ -314,6 +314,18 @@ exec function BBHeliInfo()
 	}
 }
 
+/** Draws heli routes, LZs, danger spots, targets and marks; lists the bot pilots every 5 s */
+exec function BBHeliDebug()
+{
+	local BBHeliManager HM;
+
+	HM = class'BBHeliManager'.static.Get(WorldInfo);
+	if (HM != none)
+	{
+		HM.BBToggleDebug(self);
+	}
+}
+
 exec function BBLeader()
 {
 	local ROPlayerReplicationInfo ROPRI;
