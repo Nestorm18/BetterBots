@@ -1435,12 +1435,17 @@ function float BBGroundZ(vector P, out vector HitNormal, out Actor HitActor)
 	Start.Z += 20000.0;
 	End = P;
 	End.Z -= 60000.0;
-	HitActor = Trace(HitLocation, HitNormal, End, Start, true);
-	if (HitActor == none)
+	// Water stops the trace too (a heli can't land on it)
+	foreach TraceActors(class'Actor', HitActor, HitLocation, HitNormal, End, Start,,, TRACEFLAG_PhysicsVolumes)
 	{
-		return End.Z;
+		if (HitActor.bWorldGeometry || Pawn(HitActor) != none || HitActor.bBlockActors ||
+			(PhysicsVolume(HitActor) != none && PhysicsVolume(HitActor).bWaterVolume))
+		{
+			return HitLocation.Z;
+		}
 	}
-	return HitLocation.Z;
+	HitActor = none;
+	return End.Z;
 }
 
 /** Flat, open ground for a heli (no trees, walls or slopes within ~12 m) */

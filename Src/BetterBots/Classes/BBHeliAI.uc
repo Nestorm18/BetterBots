@@ -149,6 +149,9 @@ var		float				BBHeliSeatedSince;
 // Walking to a heli seat
 var		float				BBBoardWalkStart;
 var		float				BBBoardNextGoal;
+var		float				BBBoardBestDist;
+var		float				BBBoardProgressTime;
+var		bool				bBBRideHumanPilot;
 
 // Respawn selection pointed at a heli by the manager
 var		bool				bBBHeliSpawnSel;
@@ -332,9 +335,11 @@ function BBTryBoardCrew()
 	}
 
 	// Walk over to it (no teleporting into a heli from across the pad)
-	if (VSize(Pawn.Location - H.Location) > BB_BoardDist && VSize(Pawn.Location - H.Location) < 4000.0)
+	if (VSize(Pawn.Location - H.Location) > BB_BoardDist && VSize(Pawn.Location - H.Location) < 2000.0)
 	{
 		BBBoardWalkStart = WorldInfo.TimeSeconds;
+		BBBoardBestDist = VSize(Pawn.Location - H.Location);
+		BBBoardProgressTime = WorldInfo.TimeSeconds;
 		BBBoardNextGoal = 0;
 		SetTimer(0.4, true, 'BBBoardWalkTick');
 		BBBoardWalkTick();
@@ -361,6 +366,7 @@ function BBBoardWalkTick()
 	local ROVehicleHelicopter H;
 	local int Seat;
 	local bool bAbort;
+	local float D;
 
 	H = BBCrewHeli;
 	Seat = BBCrewSeat;
@@ -369,8 +375,7 @@ function BBBoardWalkTick()
 		ClearTimer('BBBoardWalkTick');
 		return;
 	}
-	bAbort = !BBHM.HeliUsable(H) || !BBHM.SeatFree(H, Seat) || !BBHM.HeliOnGround(H) ||
-		WorldInfo.TimeSeconds - BBBoardWalkStart > 45.0;
+	bAbort = !BBHM.HeliUsable(H) || !BBHM.SeatFree(H, Seat) || !BBHM.HeliOnGround(H);
 	if (bAbort)
 	{
 		ClearTimer('BBBoardWalkTick');
@@ -386,9 +391,20 @@ function BBBoardWalkTick()
 		}
 		return;
 	}
-	if (VSize(Pawn.Location - H.Location) < BB_BoardDist)
+	D = VSize(Pawn.Location - H.Location);
+	if (D < BBBoardBestDist - 100.0)
+	{
+		BBBoardBestDist = D;
+		BBBoardProgressTime = WorldInfo.TimeSeconds;
+	}
+	// There, or no path / stuck on the pad (3 s without getting closer, 20 s at most): climb in
+	if (D < BB_BoardDist || WorldInfo.TimeSeconds - BBBoardProgressTime > 3.0 || WorldInfo.TimeSeconds - BBBoardWalkStart > 20.0)
 	{
 		ClearTimer('BBBoardWalkTick');
+		if (IsInState('GoThereAndStayThere'))
+		{
+			GotoState('FindNextState');
+		}
 		BBBoardCrewNow(H, Seat);
 		return;
 	}
@@ -617,11 +633,29 @@ function float BBHeliGroundZ(vector P)
 	Start.Z = BBHeli.Location.Z + 8000.0;
 	End = P;
 	End.Z = BBHeli.Location.Z - 60000.0;
-	if (Trace(HitLocation, HitNormal, End, Start, false) == none)
+	if (!BBTraceSurface(Start, End, HitLocation, HitNormal))
 	{
 		return End.Z;
 	}
 	return HitLocation.Z;
+}
+
+/** First solid ground OR water surface below Start (water counts as ground for a heli) */
+function bool BBTraceSurface(vector Start, vector End, out vector HitLocation, out vector HitNormal)
+{
+	local Actor HitActor;
+	local vector HL, HN;
+
+	foreach TraceActors(class'Actor', HitActor, HL, HN, End, Start,,, TRACEFLAG_PhysicsVolumes)
+	{
+		if (HitActor.bWorldGeometry || (PhysicsVolume(HitActor) != none && PhysicsVolume(HitActor).bWaterVolume))
+		{
+			HitLocation = HL;
+			HitNormal = HN;
+			return true;
+		}
+	}
+	return false;
 }
 
 /** Height above ground under the helicopter, in UU */
@@ -629,7 +663,7 @@ function float BBHeliAGL()
 {
 	local vector HitLocation, HitNormal;
 
-	if (Trace(HitLocation, HitNormal, BBHeli.Location - vect(0,0,60000), BBHeli.Location, false) == none)
+	if (!BBTraceSurface(BBHeli.Location, BBHeli.Location - vect(0,0,60000), HitLocation, HitNormal))
 	{
 		return 60000.0;
 	}
@@ -2655,19 +2689,21 @@ function BBRideTick()
 	{
 		// The human pilot jumped out (maybe swapping helis): get out quickly and
 		// keep the gunner role a while so the manager can put us in their new heli
-		if (BBGetHM() != none && BBHM.BBHumanAtHeliBase(H) && BBRideStart < WorldInfo.TimeSeconds - 3.0)
+		if (bBBRideHumanPilot && BBGetHM() != none && BBHM.BBHumanAtHeliBase(H) && BBRideStart < WorldInfo.TimeSeconds - 3.0)
 		{
 			`log("[BetterBots][Heli]"@BBName()@"pilot left, gets out and waits for a new heli");
 			BBLeaveVehicle();
 			SetTimer(60.0, false, 'BBFreeIdleGunnerRole');
 		}
-		else if (BBRideStart < WorldInfo.TimeSeconds - 20.0)
+		else if (BBRideStart < WorldInfo.TimeSeconds - 60.0)
 		{
+			// Waited a minute for a pilot
 			BBLeaveVehicle();
 			BBFreePilotRole();
 		}
 		return;
 	}
+	bBBRideHumanPilot = PlayerController(H.Controller) != none;
 	BBRideStart = WorldInfo.TimeSeconds;
 	BBGunTick(H, BBRideSeat);
 }
@@ -2683,6 +2719,7 @@ state BBHeliRide
 		BBRideHeli = BBCurrentHeli();
 		BBRideSeat = (ROWeaponPawn(Pawn) != none) ? ROWeaponPawn(Pawn).MySeatIndex : -1;
 		BBRideStart = WorldInfo.TimeSeconds;
+		bBBRideHumanPilot = false;
 		bBBGunFiring = false;
 		BBGunTarget = none;
 		SetTimer(0.25, true, 'BBRideTick');
