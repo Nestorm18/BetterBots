@@ -499,8 +499,10 @@ function bool BBWantsSpawnIns(ROVehicleHelicopter H)
 	{
 		return H.bTransportHelicopter || H.bIsGunship;
 	}
+	// Bot transports: at base and on the way out (players can spawn into a flying Huey too)
 	Pilot = BBAIController(H.Controller);
-	return Pilot != none && H.bTransportHelicopter && Pilot.BBHeliMission == 'Lift' && Pilot.BBHeliTask == 'Wait';
+	return Pilot != none && H.bTransportHelicopter && Pilot.BBHeliMission == 'Lift' &&
+		(Pilot.BBHeliTask == 'Wait' || Pilot.BBHeliTask == 'Spool' || Pilot.BBHeliTask == 'Takeoff' || Pilot.BBHeliTask == 'Transit');
 }
 
 function int BBFreeRideSeats(ROVehicleHelicopter H)
@@ -1449,7 +1451,7 @@ function float BBGroundZ(vector P, out vector HitNormal, out Actor HitActor)
 }
 
 /** Flat, open ground for a heli (no trees, walls or slopes within ~12 m) */
-function bool BBIsLandable(vector P, out vector LandPoint)
+function bool BBIsLandable(vector P, out vector LandPoint, optional bool bLoose)
 {
 	local vector N, Offset;
 	local Actor A;
@@ -1457,7 +1459,7 @@ function bool BBIsLandable(vector P, out vector LandPoint)
 	local int i;
 
 	Z0 = BBGroundZ(P, N, A);
-	if (A == none || Pawn(A) != none || N.Z < 0.94 || PhysicsVolume(A) != none)
+	if (A == none || Pawn(A) != none || N.Z < (bLoose ? 0.9 : 0.94) || PhysicsVolume(A) != none)
 	{
 		return false;
 	}
@@ -1466,13 +1468,13 @@ function bool BBIsLandable(vector P, out vector LandPoint)
 		Offset.X = Cos(i * 1.0472) * 650.0;
 		Offset.Y = Sin(i * 1.0472) * 650.0;
 		Z = BBGroundZ(P + Offset, N, A);
-		if (A == none || Pawn(A) != none || Abs(Z - Z0) > 140.0 || N.Z < 0.88)
+		if (A == none || Pawn(A) != none || PhysicsVolume(A) != none || Abs(Z - Z0) > (bLoose ? 220.0 : 140.0) || N.Z < (bLoose ? 0.82 : 0.88))
 		{
 			return false;
 		}
 		// Wider ring: a big drop means we are on a roof or a ledge
 		Z = BBGroundZ(P + Offset * 2.0, N, A);
-		if (A == none || Abs(Z - Z0) > 400.0)
+		if (A == none || Abs(Z - Z0) > (bLoose ? 700.0 : 400.0))
 		{
 			return false;
 		}
@@ -1487,12 +1489,29 @@ function bool BBIsLandable(vector P, out vector LandPoint)
  * further away the more danger is remembered there (plus ExtraDist after an
  * aborted landing). Varies the angle so drops are not predictable.
  */
+/** Another transport already lands within 80 m of there */
+function bool BBLZTaken(ROVehicleHelicopter H, vector P)
+{
+	local BBAIController Bot;
+
+	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
+	{
+		if (Bot.BBHeli != none && Bot.BBHeli != H && Bot.bBBHeliPilot && Bot.BBHeliLZ != vect(0,0,0) &&
+			VSize2D(Bot.BBHeliLZ - P) < 4000.0)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 function bool BBPickLZ(ROVehicleHelicopter H, float ExtraDist, out vector LZ)
 {
 	local vector Center, Home, Dir, Cand, Land, BestLand;
 	local float BaseDist, MaxDist, D, Ang, Danger, Score, BestScore;
 	local int i;
 	local byte Team;
+	local bool bLoose;
 
 	Team = H.GetTeamNum();
 	if (!BBFightCenter(Team, Center))
@@ -1510,20 +1529,30 @@ function bool BBPickLZ(ROVehicleHelicopter H, float ExtraDist, out vector LZ)
 	BaseDist = FMin(BaseDist, FMax(MaxDist, 5000.0));
 
 	BestScore = -1000000.0;
-	for (i = 0; i < 24; i++)
+	for (i = 0; i < 72; i++)
 	{
-		Ang = (FRand() - 0.5) * 1.6;	// +-46 deg from the line to our base
-		D = BaseDist * (0.8 + 0.4 * FRand());
+		// First tries: strict flat ground near the planned spot; then wider and less picky
+		bLoose = i >= 24;
+		Ang = (FRand() - 0.5) * (bLoose ? 3.0 : 1.6);	// +-46 deg from the line to our base (+-86 later)
+		D = BaseDist * (bLoose ? (0.5 + 1.1 * FRand()) : (0.8 + 0.4 * FRand()));
 		Cand = Center + (Dir * Cos(Ang) + (vect(0,0,1) cross Dir) * Sin(Ang)) * D;
-		if (!BBIsLandable(Cand, Land))
+		if (!BBIsLandable(Cand, Land, bLoose) || BBLZTaken(H, Land))
 		{
 			continue;
 		}
 		Score = -BBDanger(Team, Land, 6000.0) * 20.0 - Abs(D - BaseDist) / 100.0 + FRand() * 30.0;
+		if (bLoose)
+		{
+			Score -= 200.0;
+		}
 		if (Score > BestScore)
 		{
 			BestScore = Score;
 			BestLand = Land;
+		}
+		if (i == 23 && BestScore > -1000000.0)
+		{
+			break;
 		}
 	}
 	if (BestScore <= -1000000.0)

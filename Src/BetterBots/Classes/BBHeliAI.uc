@@ -138,6 +138,7 @@ var		float				BBHeliNextRoute;
 
 // Transport
 var		vector				BBHeliLZ;
+var		float				BBHeliNextLZTry;
 var		float				BBHeliLZExtra;
 var		float				BBHeliHumanAboardSince;
 var		float				BBHeliNextWaitMsg;
@@ -2001,12 +2002,27 @@ function BBHeliThink()
 			break;
 
 		case 'Approach':
-			BBNavMove(BBHeliLandPoint, BB_HeliApproachAGL, FMin(BB_HeliCruiseSpeed, FMax(BBHeliDist2D(BBHeliLandPoint) * 0.45, 100.0)));
+			// Far: fly in slowing down. Last 30 m: hover across to the point (no overshooting circles)
+			if (BBHeliDist2D(BBHeliLandPoint) > 1500.0)
+			{
+				BBNavMove(BBHeliLandPoint, BB_HeliApproachAGL, FMin(BB_HeliCruiseSpeed, FMax(BBHeliDist2D(BBHeliLandPoint) * 0.3, 300.0)));
+			}
+			else
+			{
+				BBNavHold(BBHeliLandPoint, BB_HeliApproachAGL);
+			}
+			// Taking too long (wind-milling around the spot): land where we are if it is flat
+			if (BBHeliTaskTime() > 45.0 && BBGetHM() != none && BBHM.BBIsLandable(BBHeli.Location, BBHeliLandPoint, true))
+			{
+				`log("[BetterBots][Heli]"@BBName()@"approach took too long, landing here");
+				BBHeliSetTask('Descend');
+				break;
+			}
 			if (BBHeliMission == 'Lift' && BBHeliLiftAbortCheck())
 			{
 				break;
 			}
-			if (BBHeliDist2D(BBHeliLandPoint) < 250.0 && VSize2D(BBHeli.Velocity) < 200.0)
+			if (BBHeliDist2D(BBHeliLandPoint) < 300.0 && VSize2D(BBHeli.Velocity) < 250.0)
 			{
 				BBHeliSetTask('Descend');
 			}
@@ -2174,7 +2190,7 @@ function float BBHeliSeparate(out vector DesiredVel)
 		}
 		Off = BBHeli.Location - O.Location;
 		D = VSize(Off);
-		if (D > 3000.0)
+		if (D > 2200.0)
 		{
 			continue;
 		}
@@ -2184,7 +2200,7 @@ function float BBHeliSeparate(out vector DesiredVel)
 		{
 			Off = vect(0,1,0) * ((string(BBHeli.Name) > string(O.Name)) ? 1.0 : -1.0);
 		}
-		DesiredVel += Normal(Off) * FMin((3000.0 - D) * 0.8, 1200.0);
+		DesiredVel += Normal(Off) * FMin((2200.0 - D) * 0.8, 1000.0) * ((BBHeliTask == 'Approach' || BBHeliTask == 'Descend') ? 0.3 : 1.0);
 		// One of the two climbs over the other
 		if (D2 < 2500.0 && string(BBHeli.Name) > string(O.Name))
 		{
@@ -2366,11 +2382,16 @@ function BBHeliLiftWait()
 		return;
 	}
 
+	if (WorldInfo.TimeSeconds < BBHeliNextLZTry)
+	{
+		return;
+	}
 	BBHeliLZExtra = 0;
 	if (!BBHM.BBPickLZ(BBHeli, BBHeliLZExtra, BBHeliLZ))
 	{
 		// No landing zone found: try again in a while
-		BBHeliTaskStart = WorldInfo.TimeSeconds - 45.0;
+		BBHeliLZ = vect(0,0,0);
+		BBHeliNextLZTry = WorldInfo.TimeSeconds + 5.0;
 		return;
 	}
 	`log("[BetterBots][Heli]"@BBName()@"lifting"@NumPass@"passengers ("$NumHumans@"human) to LZ"@BBHeliLZ@
