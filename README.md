@@ -104,17 +104,36 @@ The NVA fight back. Rocket soldiers and machine gunners shoot at helicopters, an
 
 ## How to play
 
-Start the game, open the console with **`~`** and type, for example:
+### Starting a match
+1. Start Rising Storm 2 from Steam with the `-useunpublished` launch option set (see *Installation*).
+2. Wait for the **main menu**. You don't need to create a match from the menus.
+3. Open the **console**:
+   - Press **`~`**, the key under `Esc` and left of `1`.
+   - On a Spanish keyboard it is **`º`**; on other layouts it may be `` ` `` or `ö`.
+   - A text bar appears at the bottom of the screen.
+4. Type the command for the map you want and press **Enter**:
+   ```
+   open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator
+   ```
+   - `VNTE-CuChi` is the map. All maps are listed below.
+   - `MinPlayers=64` fills the match with bots up to 64 players, 32 per team. Use a lower number for fewer bots. Without it, the default is also 64.
+   - `mutator=BetterBots.BBMutator` loads BetterBots. **Without it you get the stock bots.**
+5. When the map loads, pick a **team**:
+   - **South:** US / Australia / ARVN, the side with helicopters.
+   - **North:** NVA / VC.
+6. Pick a **role** and spawn.
+   - To fly, take a pilot role. Combat pilots fly the Cobra and Loach; transport pilots fly the Huey and Bushranger.
+   - Otherwise, take any role and let the bots fly you.
 
-```
-open VNTE-CuChi?mutator=BetterBots.BBMutator
-```
+### Changing map or leaving
+- **Another map:** open the console again and type another `open ...` line; no need to go back to the menu.
+- **Back to the main menu:** type `disconnect`.
+- **Restart the same map:** type the same `open ...` line again.
 
-By default the match is filled up to **64 players**. Use `MinPlayers` for a different number:
-
-```
-open VNTE-CuChi?MinPlayers=40?mutator=BetterBots.BBMutator
-```
+### Is it working?
+- On maps with helicopters, about 15 s after you spawn the bots board the helicopters and take off.
+- You can also type `BBHeliInfo` in the console. If BetterBots is loaded, it lists the helicopters.
+- Everything BetterBots does is logged to `Documents\My Games\Rising Storm 2\ROGame\Logs\Launch.log`, in lines starting with `[BetterBots]`.
 
 <details>
 <summary><b>All Territories maps (copy &amp; paste)</b></summary>
@@ -160,8 +179,6 @@ open VNTE-SongBe?MinPlayers=64?mutator=BetterBots.BBMutator
 | `BBHeliGoto [n]` | The flying bot comes to you (or to objective *n*: 1 = A, 2 = B…), waits 20 s and goes back. |
 | `BBHeliHome` | Orders the test helicopter home. |
 
-The bot logs what it is doing to `Documents\My Games\Rising Storm 2\ROGame\Logs\Launch.log`. Look for lines starting with `[BetterBots]`.
-
 ---
 
 ## Notes
@@ -196,4 +213,4 @@ Requirements: Rising Storm 2: Vietnam with the **SDK** installed (Steam > Librar
 
 ## License
 
-No license file yet. Ask the author before redistributing modified versions.
+[MIT](LICENSE) © Nestorm18. Rising Storm 2: Vietnam belongs to Tripwire Interactive and Antimatter Games; this is an unofficial fan mod.

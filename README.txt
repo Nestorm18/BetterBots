@@ -19,13 +19,20 @@ INSTALL
 
 PLAY
 ----
-Start the game, press ~ (console) and type, for example:
+1. Start the game (with -useunpublished) and wait for the main menu.
+2. Open the console: the key under Esc, left of 1 (~ on English
+   keyboards, º on Spanish ones).
+3. Type, for example, and press Enter:
 
    open VNTE-CuChi?mutator=BetterBots.BBMutator
 
 The match is filled up to 64 players. For another number:
 
    open VNTE-CuChi?MinPlayers=40?mutator=BetterBots.BBMutator
+
+Pick a team (South = US with helicopters, North = NVA), a role, and
+spawn. Another map: type another "open ..." line. Back to the menu:
+type "disconnect".
 
 Works on every Territories map (VNTE-...), plus Supremacy, Skirmish and
 Campaign. Helicopter features need a map with US helicopters (Hill937,

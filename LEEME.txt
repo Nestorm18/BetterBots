@@ -20,9 +20,16 @@ INSTALACION
 
 JUGAR
 -----
-Abre el juego, pulsa la tecla ~ (consola) y escribe por ejemplo:
+1. Abre el juego (con -useunpublished) y espera al menú principal.
+2. Abre la consola: la tecla debajo de Esc, a la izquierda del 1
+   (º en teclado español, ~ en inglés).
+3. Escribe por ejemplo y pulsa Intro:
 
    open VNTE-CuChi?mutator=BetterBots.BBMutator
+
+Elige bando (South = EE. UU., con helicópteros; North = NVA), rol y
+aparece. Otro mapa: escribe otra línea "open ...". Volver al menú:
+escribe "disconnect".
 
 Por defecto rellena hasta 64 jugadores. Para otro número:
 

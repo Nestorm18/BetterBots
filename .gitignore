@@ -1,3 +1,6 @@
 # Build outputs (regenerate with build.ps1)
 Mod/*.u
 dist/
+
+# Planning notes (local only)
+PLAN-*.txt
