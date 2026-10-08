@@ -64,13 +64,37 @@ COMANDOS EN PARTIDA (consola)
                    un bot se cambia a otra escuadra.
    BBLeader        Ser líder de tu escuadra (el bot líder pasa a soldado).
 
-PRUEBAS DE HELICOPTERO (en desarrollo, solo bando EE. UU.)
+HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
+   Automatico. Tienes 30 s desde que apareces para elegir piloto;
+   despues los bots cogen los helicopteros libres:
+   - Cobra: espera alto y lejos, hace pasadas de cohetes/cañon y se va.
+     Si sobran plazas de piloto, lleva un bot artillero en la torreta.
+   - Loach: da vueltas sobre el combate, marca enemigos en el mapa
+     y hace pasadas cortas con la minigun.
+   - Bushranger: gira alrededor del combate con los ametralladores
+     de puerta disparando.
+   - Huey de transporte: espera en base a pasajeros (3+ o 60 s; si
+     subes tú, sale en 10 s), aterriza a 150-300 m del objetivo y
+     vuelve. Si hay fuego en la zona, aterriza más lejos.
+   - Vuelven a base a recargar y reparar (munición <20 %, daños,
+     tripulación herida). Esquivan zonas donde les han disparado.
+   Tú tienes prioridad:
+   - Elige un rol de piloto ocupado por bots: un bot en tierra te lo
+     cede al momento; si todos vuelan, uno vuelve a base y te lo deja.
+   - Con rol de piloto, acércate a menos de 15 m de un helicóptero
+     de bot aterrizado: el bot se baja y te lo deja.
+   - Si pilotas un Huey/Bushranger, los bots suben en base y bajan
+     cuando aterrizas cerca de un objetivo.
+
+COMANDOS DE HELICOPTERO (consola, para pruebas)
+   BBHeliInfo      Lista los helicópteros, su piloto y lo que hacen.
    BBHeliTest      Un bot despega en un Cobra/Loach libre, se queda
                    30 s a 30 m y aterriza. (BBHeliTest 60 = 60 s)
-   BBHeliGoto      El bot vuela hasta donde estás, espera 20 s y vuelve
-                   a aterrizar donde despegó.
+   BBHeliGoto      El bot que vuela viene hasta donde estás, espera
+                   20 s y vuelve a aterrizar donde despegó.
    BBHeliGoto 2    Igual, pero al objetivo 2 (1 = A, 2 = B...).
    BBHeliHome      Ordena volver y aterrizar.
+   (Tras una prueba, el bot vuelve a su trabajo normal a los 10 s.)
 
 
 NOTAS

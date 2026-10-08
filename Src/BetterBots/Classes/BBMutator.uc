@@ -70,6 +70,8 @@ function PostBeginPlay()
 {
 	super.PostBeginPlay();
 	SetTimer(2.0, true, 'BBFillBots');
+	// Bot helicopter crews, passengers and shared danger memory
+	Spawn(class'BBHeliManager');
 }
 
 /**

@@ -4,11 +4,13 @@ Objetivo: que bots piloten y tripulen los helicopteros de ataque y
 reconocimiento de forma realista. Sin helicopteros de transporte.
 Los helicopteros vuelven a base para recargar municion y repararse.
 
-Estado: FASE 0 COMPLETADA (07-10-2026). Probada en Hill937 con Cobra:
-spool 19 s, subida a ~30 m, 30 s estacionario estable sin deriva ni giro,
-aterrizaje en el punto de despegue (algo brusco, ~5 m/s; ajustado).
-FASE 1 IMPLEMENTADA, pendiente de prueba: BBHeliGoto / BBHeliHome
-(seguimiento del terreno, rumbo, crucero 1200 UU/s, ida, espera, vuelta y aterrizaje).
+Estado (08-10-2026): FASE 0 probada en juego. FASES 1-5 IMPLEMENTADAS
+todas juntas segun las decisiones de la seccion 12, pendientes de prueba:
+vuelo a puntos, Cobra (pasadas + artillero), Loach (orbita + marcas +
+minigun), Bushranger (orbita con puertas), Huey (transporte a LZ),
+recarga/reparacion en base, memoria de peligro, evasion, aterrizaje de
+emergencia, prioridad humana y reaccion norvietnamita.
+Codigo: BBHeliManager.uc (coordinacion) y BBHeliAI.uc (vuelo y tripulacion).
 
 
 1. QUE OFRECE EL JUEGO (comprobado en el codigo del SDK)

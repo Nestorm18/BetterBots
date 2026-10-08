@@ -67,6 +67,50 @@ reliable protected server function ServerJoinSquad(int NewSquadIndex, optional b
 	super.ServerJoinSquad(NewSquadIndex, bViaInvite);
 }
 
+function bool BBPilotRoleHeldByBot(class<RORoleInfo> RoleClass)
+{
+	local BBAIController Bot;
+	local ROPlayerReplicationInfo BotPRI;
+
+	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
+	{
+		BotPRI = ROPlayerReplicationInfo(Bot.PlayerReplicationInfo);
+		if (Bot.GetTeamNum() == GetTeamNum() && BotPRI != none && BotPRI.RoleInfo != none &&
+			BotPRI.RoleInfo.ClassIndex == RoleClass.default.ClassIndex)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Picking a pilot role that bots fill: instead of the stock behaviour (a bot
+ * is kicked out of the role and killed, crashing its heli), a bot on the
+ * ground gives it up at once, or the nearest bot heli flies back, lands and
+ * its pilot hands over (BBHeliManager repeats this call when it is free).
+ */
+reliable server function SelectRoleByClass(bool bSouthDesired, class<RORoleInfo> RoleInfoClass, WeaponSelectionInfo WeaponSelection, class<ROVehicle> TankSelection, optional bool bAllowTeamTank, optional bool bDesiredContext = false, optional bool bCloseMenu)
+{
+	local BBHeliManager HM;
+	local ROPlayerReplicationInfo ROPRI;
+
+	ROPRI = ROPlayerReplicationInfo(PlayerReplicationInfo);
+	if (RoleInfoClass != none && RoleInfoClass.default.bIsPilot &&
+		(ROPRI == none || ROPRI.RoleInfo == none || ROPRI.RoleInfo.ClassIndex != RoleInfoClass.default.ClassIndex))
+	{
+		HM = class'BBHeliManager'.static.Get(WorldInfo);
+		if (HM != none && HM.PilotSlotsFree(GetTeamNum(), RoleInfoClass.default.bIsTransportPilot) <= 0 && BBPilotRoleHeldByBot(RoleInfoClass))
+		{
+			if (!HM.BBRequestPilotRole(self, RoleInfoClass, WeaponSelection, TankSelection, bAllowTeamTank, bDesiredContext, bCloseMenu))
+			{
+				return;
+			}
+		}
+	}
+	super.SelectRoleByClass(bSouthDesired, RoleInfoClass, WeaponSelection, TankSelection, bAllowTeamTank, bDesiredContext, bCloseMenu);
+}
+
 /** A free attack helicopter (Cobra preferred) and the nearest bot of its team */
 function bool BBPickHeliAndBot(out ROVehicleHelicopter Best, out BBAIController BestBot)
 {
@@ -233,6 +277,41 @@ exec function BBHeliHome()
 	}
 	Bot.BBHeliRetask('Home', Bot.BBHeliHome, 0);
 	ClientMessage("[BetterBots]"@Bot.PlayerReplicationInfo.PlayerName@"returning to base");
+}
+
+/** Lists the helicopters and what their bot crews are doing */
+exec function BBHeliInfo()
+{
+	local ROVehicleHelicopter H;
+	local BBAIController Pilot;
+	local BBHeliManager HM;
+	local int NumHumans, NumPass;
+	local string S;
+
+	HM = class'BBHeliManager'.static.Get(WorldInfo);
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
+	{
+		Pilot = BBAIController(H.Controller);
+		NumPass = (HM != none) ? HM.NumPassengers(H, NumHumans) : 0;
+		S = class'BBHeliManager'.static.HeliName(H)@"HP"@H.Health$"/"$H.HealthMax;
+		if (Pilot != none)
+		{
+			S = S@"bot"@Pilot.PlayerReplicationInfo.PlayerName@Pilot.BBHeliMission$"/"$Pilot.BBHeliTask;
+		}
+		else if (H.Controller != none)
+		{
+			S = S@"humano"@H.Controller.PlayerReplicationInfo.PlayerName;
+		}
+		else
+		{
+			S = S@"sin piloto";
+		}
+		ClientMessage("[BetterBots]"@S@"pasajeros"@NumPass);
+	}
+	if (HM != none)
+	{
+		ClientMessage("[BetterBots] Zonas de peligro:"@HM.Threats.Length@"- marcas del Loach:"@HM.Marks.Length);
+	}
 }
 
 exec function BBLeader()
