@@ -47,7 +47,7 @@ if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
 New-Item -ItemType Directory -Force "$Stage\Mod", "$Stage\Source" | Out-Null
 Copy-Item (Join-Path $Root 'Mod\BetterBots.u') "$Stage\Mod"
 Copy-Item (Join-Path $Root 'Src\BetterBots\Classes\*.uc') "$Stage\Source"
-Copy-Item (Join-Path $Root 'README.txt'), (Join-Path $Root 'LEEME.txt'), (Join-Path $Root 'LICENSE') $Stage
+Copy-Item (Join-Path $Root 'README.md'), (Join-Path $Root 'README.es.md'), (Join-Path $Root 'LICENSE') $Stage
 New-Item -ItemType Directory -Force (Join-Path $Root 'dist') | Out-Null
 Compress-Archive -Path "$Stage\*" -DestinationPath (Join-Path $Root 'dist\BetterBots.zip') -Force
 # Release asset with the version in the name

@@ -135,37 +135,39 @@ Los norvietnamitas se defienden. Los de cohetes y los ametralladores disparan a 
 - También puedes escribir `BBHeliInfo` en la consola. Si BetterBots está cargado, lista los helicópteros.
 - Todo lo que hace BetterBots queda en `Documentos\My Games\Rising Storm 2\ROGame\Logs\Launch.log`, en las líneas que empiezan por `[BetterBots]`.
 
-<details>
-<summary><b>Todos los mapas de Territorios (copiar y pegar)</b></summary>
+### Mapas: comandos de consola
 
-```
-open VNTE-AnLaoValley?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-ApacheSnow?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-ASau?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-BorderWatch?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Compound?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-CuaViet?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-DaNangAirBase?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-DemilitarizedZone?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-DongHa?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Firebase?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-FirebaseGeorgina?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Highway14?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Hill937?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-HueCity?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-KheSanh?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-LongTan?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Mekong?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-NinhPhu?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-OperationForrest?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-QuangTri?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Resort?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-RungSac?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-Saigon?MinPlayers=64?mutator=BetterBots.BBMutator
-open VNTE-SongBe?MinPlayers=64?mutator=BetterBots.BBMutator
-```
-</details>
+Copia la línea del mapa que quieras, pégala en la consola con **Ctrl+V** y pulsa **Intro**. Cambia `64` para jugar con menos bots.
+
+| Mapa | Comando de consola |
+|---|---|
+| An Lao Valley | `open VNTE-AnLaoValley?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Apache Snow | `open VNTE-ApacheSnow?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| A Shau | `open VNTE-ASau?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Border Watch | `open VNTE-BorderWatch?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Compound | `open VNTE-Compound?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Cua Viet | `open VNTE-CuaViet?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Cu Chi | `open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Da Nang Air Base | `open VNTE-DaNangAirBase?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Demilitarized Zone | `open VNTE-DemilitarizedZone?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Dong Ha | `open VNTE-DongHa?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Firebase | `open VNTE-Firebase?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Firebase Georgina | `open VNTE-FirebaseGeorgina?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Highway 14 | `open VNTE-Highway14?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Hill 937 | `open VNTE-Hill937?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Hue City | `open VNTE-HueCity?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Khe Sanh | `open VNTE-KheSanh?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Long Tan | `open VNTE-LongTan?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Mekong | `open VNTE-Mekong?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Ninh Phu | `open VNTE-NinhPhu?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Operation Forrest | `open VNTE-OperationForrest?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Quang Tri | `open VNTE-QuangTri?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Resort | `open VNTE-Resort?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Rung Sac | `open VNTE-RungSac?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Saigon | `open VNTE-Saigon?MinPlayers=64?mutator=BetterBots.BBMutator` |
+| Song Be | `open VNTE-SongBe?MinPlayers=64?mutator=BetterBots.BBMutator` |
+
+**Otros modos:** el mismo final `?MinPlayers=64?mutator=BetterBots.BBMutator` sirve con cualquier nombre de mapa del juego, también las versiones de Supremacía y Escaramuza. Solo pon el nombre de ese mapa después de `open`.
 
 ### Comandos de consola
 
