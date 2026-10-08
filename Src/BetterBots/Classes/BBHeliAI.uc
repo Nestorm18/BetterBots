@@ -73,7 +73,11 @@ var		float				BBHeliTouchdownVZ;
 var		float				BBHeliNextThink;
 var		bool				bBBHeliCede;		// Flying home to give the pilot role to the human
 var		bool				bBBHeliResume;
-var		int					BBHeliLastYaw;		// Re-entering BBHeliFly after a stray state change
+var		int					BBHeliLastYaw;
+var		bool				bBBHeliLongShot;	// This attack is a long-range shot from a near hover
+var		float				BBHeliLongDist;
+var		bool				bBBHeliRunRockets;
+var		float				BBHeliAimLift;		// Aim above the target for drop at long range		// Re-entering BBHeliFly after a stray state change
 var		vector				BBHeliStandoffCenter;
 
 // Autopilot target
@@ -871,7 +875,7 @@ function BBHeliSteer(float DeltaTime)
 		if (bBBNavAim)
 		{
 			// Point the guns: nose on the target
-			BBHeliAimAt(BBHeliTargetLoc, AimYaw, AimPitch);
+			BBHeliAimAt(BBHeliTargetLoc + vect(0,0,1) * BBHeliAimLift, AimYaw, AimPitch);
 			BBNavYaw = AimYaw;
 			TargetPitch = FClamp(AimPitch, -BB_HeliAttackTilt, BB_HeliMaxTilt * 0.5);
 		}
@@ -993,7 +997,7 @@ function BBHeliFireTick()
 {
 	if (bBBHeliFiring)
 	{
-		BBHeli.currAimPt = BBHeliTargetLoc;
+		BBHeli.currAimPt = BBHeliTargetLoc + vect(0,0,1) * BBHeliAimLift;
 		if (WorldInfo.TimeSeconds > BBHeliFireEnd)
 		{
 			BBHeliStopFire();
@@ -1337,19 +1341,42 @@ function BBHeliStartRun()
 	BBHeliRunAmmoStart = (G != none) ? G.AmmoCount : 0;
 	BBHeliRunAltAmmoStart = (G != none) ? G.AltAmmoCount : 0;
 	BBHeliResumeTask = (BBHeliMission == 'Attack') ? 'Standoff' : 'Orbit';
-	`log("[BetterBots][Heli]"@BBName()@"attack run on"@BBHeliTarget@"at"@int(BBHeliDist2D(BBHeliTargetLoc))@"UU");
+	BBHeliAimLift = 0;
+
+	// Two styles: a fast diving pass, or a long-range shot from a near hover
+	// (steadier aim, keeps out of small-arms range)
+	bBBHeliLongShot = FRand() < ((BBHeliMission == 'Scout') ? 0.35 : 0.45);
+	if (BBHeliMission == 'Scout')
+	{
+		BBHeliLongDist = 6000.0 + FRand() * 3000.0;		// 120-180 m
+	}
+	else
+	{
+		BBHeliLongDist = 15000.0 + FRand() * 12000.0;	// 300-540 m
+	}
+
+	// Rockets for fixed weapons and AA (or when the cannon is empty), else mostly the cannon
+	bBBHeliRunRockets = BBHeliHasAmmo(0) && (BBHeliMission != 'Attack' || !BBHeliHasAmmo(1) || Vehicle(BBHeliTarget) != none ||
+		(BBGetHM() != none && BBHeliTarget != none && BBHM.BBIsAirThreat(BBHeliTarget)) || FRand() < 0.3);
+
+	`log("[BetterBots][Heli]"@BBName()@(bBBHeliLongShot ? "long-range shot" : "attack run")@"on"@BBHeliTarget@"at"@
+		int(BBHeliDist2D(BBHeliTargetLoc))@"UU"@(bBBHeliRunRockets ? "rockets" : "guns"));
 	BBHeliSetTask('RunIn');
 }
 
-/** Run-in: dive at the target with the nose on it and fire when lined up */
+/**
+ * Attack: nose on the target, fire when lined up.
+ * Pass: dive at it, then break off. Long shot: hold a firing point far out,
+ * nearly hovering, and shoot from there.
+ */
 function BBHeliRunIn()
 {
-	local vector ToT;
-	local float D, AGL;
+	local vector ToT, FirePoint;
+	local float D, AGL, RunSpeed, MaxRange, TimeLimit;
 	local ROVehicleWeapon G;
-	local bool bRockets, bDone;
+	local bool bDone;
 	local int Fired, AimYaw, AimPitch;
-	local float RunSpeed;
+	local vector AimLoc;
 
 	if (BBHeliTarget != none && BBHeliTarget.Health > 0 && FastTrace(BBHeliTarget.Location + vect(0,0,40), BBHeli.Location - vect(0,0,150)))
 	{
@@ -1361,47 +1388,65 @@ function BBHeliRunIn()
 	AGL = BBHeliAGL();
 	G = BBHeliGun();
 
-	// Target well off the nose: slow down so the pedals can bring it round
-	BBHeliAimAt(BBHeliTargetLoc, AimYaw, AimPitch);
-	RunSpeed = (BBHeliMission == 'Scout') ? 1500.0 : BB_HeliRunSpeed;
-	if (Abs(NormalizeRotAxis(AimYaw - BBHeli.Rotation.Yaw)) > 4500)	// 25 deg
-	{
-		RunSpeed = 500.0;
-	}
-	BBNavVelocity(Normal(ToT) * RunSpeed, FMax(AGL - 300.0, (BBHeliMission == 'Scout') ? 1200.0 : 1800.0));
-	bBBNavAim = true;
+	// Long range: aim a little high for the drop
+	BBHeliAimLift = bBBHeliLongShot ? D * (bBBHeliRunRockets ? 0.006 : 0.004) : 0.0;
+	AimLoc = BBHeliTargetLoc + vect(0,0,1) * BBHeliAimLift;
+	BBHeliAimAt(AimLoc, AimYaw, AimPitch);
 
-	if (BBHeliMission == 'Attack')
+	if (bBBHeliLongShot)
 	{
-		// Rockets for fixed weapons and AA, the cannon for the rest (or when out of rockets)
-		bRockets = BBHeliHasAmmo(0) && (Vehicle(BBHeliTarget) != none || (BBGetHM() != none && BBHeliTarget != none && BBHM.BBIsAirThreat(BBHeliTarget)) ||
-			!BBHeliHasAmmo(1) || FRand() < 0.3);
-		if (bRockets)
+		// Move to the firing point on the line from the target to us, then sit there
+		FirePoint = BBHeliTargetLoc - Normal(ToT) * BBHeliLongDist;
+		if (VSize2D(FirePoint - BBHeli.Location) > 1500.0)
 		{
-			BBHeliTryFire(BBHeliTargetLoc, 4000.0, 30000.0, 0.996, 0, 0.25);
+			RunSpeed = FMin(1400.0, VSize2D(FirePoint - BBHeli.Location) * 0.4);
+			BBNavVelocity(Normal(FirePoint - BBHeli.Location) * RunSpeed, FMax(AGL, (BBHeliMission == 'Scout') ? 1500.0 : 2500.0));
 		}
 		else
 		{
-			BBHeliTryFire(BBHeliTargetLoc, 2500.0, 15000.0, 0.993, 1, 1.2);
+			BBNavVelocity((FirePoint - BBHeli.Location) * 0.3, FMax(AGL, (BBHeliMission == 'Scout') ? 1500.0 : 2500.0));
 		}
-		Fired = (G != none) ? (BBHeliRunAmmoStart - G.AmmoCount) : 0;
-		bDone = Fired >= 4 || (G != none && BBHeliRunAltAmmoStart - G.AltAmmoCount >= 60);
-	}
-	else if (BBHeliMission == 'Gunship')
-	{
-		BBHeliTryFire(BBHeliTargetLoc, 4000.0, 30000.0, 0.996, 0, 0.25);
-		bDone = G != none && BBHeliRunAmmoStart - G.AmmoCount >= 4;
+		MaxRange = (BBHeliMission == 'Scout') ? 11000.0 : 40000.0;
+		TimeLimit = 25.0;
 	}
 	else
 	{
+		// Target well off the nose: slow down so the pedals can bring it round
+		RunSpeed = (BBHeliMission == 'Scout') ? 1500.0 : BB_HeliRunSpeed;
+		if (Abs(NormalizeRotAxis(AimYaw - BBHeli.Rotation.Yaw)) > 4500)	// 25 deg
+		{
+			RunSpeed = 500.0;
+		}
+		BBNavVelocity(Normal(ToT) * RunSpeed, FMax(AGL - 300.0, (BBHeliMission == 'Scout') ? 1200.0 : 1800.0));
+		MaxRange = (BBHeliMission == 'Scout') ? 9000.0 : 30000.0;
+		TimeLimit = 18.0;
+	}
+	bBBNavAim = true;
+
+	if (BBHeliMission == 'Scout')
+	{
 		// Loach minigun
-		BBHeliTryFire(BBHeliTargetLoc, 800.0, 9000.0, 0.99, 0, 1.2);
+		BBHeliTryFire(AimLoc, 800.0, MaxRange, 0.99, 0, 1.2);
 		bDone = G != none && BBHeliRunAmmoStart - G.AmmoCount >= 250;
 	}
+	else if (bBBHeliRunRockets)
+	{
+		BBHeliTryFire(AimLoc, 4000.0, MaxRange, bBBHeliLongShot ? 0.998 : 0.996, 0, 0.25);
+		Fired = (G != none) ? (BBHeliRunAmmoStart - G.AmmoCount) : 0;
+		bDone = Fired >= 4;
+	}
+	else
+	{
+		BBHeliTryFire(AimLoc, 2500.0, FMin(MaxRange, 25000.0), bBBHeliLongShot ? 0.996 : 0.993, 1, 1.2);
+		bDone = G != none && BBHeliRunAltAmmoStart - G.AltAmmoCount >= 60;
+	}
 
-	if (bDone || D < ((BBHeliMission == 'Scout') ? 1500.0 : 3500.0) || AGL < 900.0 || BBHeliTaskTime() > 18.0)
+	if (bDone || AGL < 900.0 || BBHeliTaskTime() > TimeLimit ||
+		(!bBBHeliLongShot && D < ((BBHeliMission == 'Scout') ? 1500.0 : 3500.0)) ||
+		(bBBHeliLongShot && D < BBHeliLongDist * 0.5))
 	{
 		BBHeliStopFire();
+		BBHeliAimLift = 0;
 		BBHeliSetTask('Egress');
 	}
 }
