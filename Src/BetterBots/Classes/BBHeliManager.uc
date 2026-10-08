@@ -45,7 +45,7 @@ struct BBStrike
 
 const BB_ThreatLife			= 180.0;	// Seconds until a danger spot is forgotten
 const BB_MarkLife			= 20.0;
-const BB_HumanGrace			= 30.0;		// Seconds the human gets to pick a pilot role first
+const BB_HumanGrace			= 15.0;		// Seconds the human gets to pick a pilot role first
 const BB_CrewPickupDist		= 3000.0;	// Alive bots this close to a heli can be crew/passengers (60 m)
 const BB_HumanTakeDist		= 750.0;	// 15 m
 const BB_HumanReserveDist	= 2500.0;	// Free helis this close to a human pilot are left for them
@@ -196,7 +196,7 @@ function int FreePassengerSeat(ROVehicleHelicopter H)
 
 	for (i = 1; i < H.Seats.Length; i++)
 	{
-		if (IsPassengerSeat(H, i) && SeatFree(H, i))
+		if (IsPassengerSeat(H, i) && SeatFree(H, i) && !BBSeatClaimed(H, i))
 		{
 			return i;
 		}
@@ -476,20 +476,8 @@ function bool BBHumanAtHeliBase(ROVehicleHelicopter H)
 		{
 			continue;
 		}
-		// On foot: a pilot near the heli base, or anyone right next to a landed heli
+		// On foot: a pilot near the heli base (infantry spawning there don't hold the helis)
 		bNear = (HasPilotRole(PC, true) || HasPilotRole(PC, false)) && VSize(PC.Pawn.Location - HeliHome(H)) < 5000.0;
-		if (!bNear)
-		{
-			foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', Other)
-			{
-				if (Other.GetTeamNum() == H.GetTeamNum() && HeliUsable(Other) && HeliOnGround(Other) &&
-					VSize(PC.Pawn.Location - Other.Location) < 1500.0)
-				{
-					bNear = true;
-					break;
-				}
-			}
-		}
 		if (bNear)
 		{
 			return true;
@@ -899,9 +887,10 @@ function BBBoardPassengers(ROVehicleHelicopter H)
 	}
 
 	Seat = FreePassengerSeat(H);
-	if (Seat >= 0 && Best.BBBoardAsRider(H, Seat))
+	if (Seat >= 0)
 	{
-		// One at a time, as if they were running over
+		// Claims the seat and walks over to it
+		Best.BBSetCrewAssignment(H, Seat);
 		NextBoardTime = WorldInfo.TimeSeconds + 1.0;
 	}
 }

@@ -43,6 +43,8 @@ const BB_HeliCruiseSpeed	= 2700.0;	// UU/s (~195 km/h)
 const BB_HeliMaxTilt		= 4551.0;	// 25 deg cyclic limit
 const BB_HeliAttackTilt		= 5461.0;	// 30 deg nose down while aiming
 const BB_HeliRunSpeed		= 2400.0;
+const BB_BoardDist			= 550.0;	// Close enough to climb in (11 m from the heli's centre)
+const BB_HeliClimbRate		= 450.0;	// UU/s we can count on climbing at
 const BB_HeliAASafeAGL		= 2500.0;	// 50 m: enemy SAMs only lock helis above 75 m
 
 // Crew assignment (set by BBHeliManager)
@@ -68,6 +70,7 @@ var		float				BBHeliLoiterTime;
 var		float				BBHeliTerrainZ;
 var		float				BBHeliNextTerrain;
 var		float				BBHeliObstacleUntil;
+var		float				BBHeliTerrainSpeedCap;
 var		bool				bBBHeliAAWarned;
 var		float				BBHeliNextLog;
 var		float				BBHeliMaxAGL;
@@ -142,6 +145,10 @@ var		float				BBHeliNextWaitMsg;
 // Waiting at base for a human who may still swap helis
 var		float				BBHeliHoldStart;
 var		float				BBHeliSeatedSince;
+
+// Walking to a heli seat
+var		float				BBBoardWalkStart;
+var		float				BBBoardNextGoal;
 
 // Respawn selection pointed at a heli by the manager
 var		bool				bBBHeliSpawnSel;
@@ -324,6 +331,20 @@ function BBTryBoardCrew()
 		return;
 	}
 
+	// Walk over to it (no teleporting into a heli from across the pad)
+	if (VSize(Pawn.Location - H.Location) > BB_BoardDist && VSize(Pawn.Location - H.Location) < 4000.0)
+	{
+		BBBoardWalkStart = WorldInfo.TimeSeconds;
+		BBBoardNextGoal = 0;
+		SetTimer(0.4, true, 'BBBoardWalkTick');
+		BBBoardWalkTick();
+		return;
+	}
+	BBBoardCrewNow(H, Seat);
+}
+
+function BBBoardCrewNow(ROVehicleHelicopter H, int Seat)
+{
 	BBCrewHeli = none;
 	if (Seat == 0)
 	{
@@ -332,6 +353,55 @@ function BBTryBoardCrew()
 	else
 	{
 		BBBoardAsRider(H, Seat);
+	}
+}
+
+function BBBoardWalkTick()
+{
+	local ROVehicleHelicopter H;
+	local int Seat;
+	local bool bAbort;
+
+	H = BBCrewHeli;
+	Seat = BBCrewSeat;
+	if (H == none || Pawn == none || Pawn.Health <= 0 || Vehicle(Pawn) != none || BBGetHM() == none)
+	{
+		ClearTimer('BBBoardWalkTick');
+		return;
+	}
+	bAbort = !BBHM.HeliUsable(H) || !BBHM.SeatFree(H, Seat) || !BBHM.HeliOnGround(H) ||
+		WorldInfo.TimeSeconds - BBBoardWalkStart > 45.0;
+	if (bAbort)
+	{
+		ClearTimer('BBBoardWalkTick');
+		`log("[BetterBots][Heli]"@BBName()@"gave up walking to the"@BBHM.HeliName(H));
+		BBCrewHeli = none;
+		if ((Seat == 0 || BBHM.IsGunnerCopilotSeat(H, Seat)) && !BBHM.SeatFree(H, Seat))
+		{
+			BBFreePilotRole();
+		}
+		if (IsInState('GoThereAndStayThere'))
+		{
+			GotoState('FindNextState');
+		}
+		return;
+	}
+	if (VSize(Pawn.Location - H.Location) < BB_BoardDist)
+	{
+		ClearTimer('BBBoardWalkTick');
+		BBBoardCrewNow(H, Seat);
+		return;
+	}
+	// Keep heading there (combat may have pulled us into another state)
+	if (WorldInfo.TimeSeconds > BBBoardNextGoal || !IsInState('GoThereAndStayThere'))
+	{
+		BBBoardNextGoal = WorldInfo.TimeSeconds + 3.0;
+		Pawn.ShouldProne(false);
+		SetGoalLocation(H.Location);
+		if (!IsInState('GoThereAndStayThere'))
+		{
+			GotoState('GoThereAndStayThere');
+		}
 	}
 }
 
@@ -582,7 +652,7 @@ function float BBHeliClampAGL(float WantedAGL)
  */
 function float BBHeliTerrainTargetZ(vector Dir, float Speed, float MaxLook, float WantedAGL)
 {
-	local float Step, D, GroundZ, MaxGround;
+	local float Step, D, GroundZ, MaxGround, Look, Rise;
 	local int i;
 
 	if (WorldInfo.TimeSeconds < BBHeliNextTerrain)
@@ -591,13 +661,22 @@ function float BBHeliTerrainTargetZ(vector Dir, float Speed, float MaxLook, floa
 	}
 	BBHeliNextTerrain = WorldInfo.TimeSeconds + 0.25;
 
-	Step = FMax(Speed, 800.0);
+	// Look ~8 s ahead: big ridges need time to climb over at our climb rate
+	Look = FMin(FMax(Speed * 8.0, 3000.0), MaxLook + 2000.0);
+	Step = Look / 8.0;
 	MaxGround = BBHeliGroundZ(BBHeli.Location);
-	for (i = 1; i <= 3; i++)
+	BBHeliTerrainSpeedCap = 100000.0;
+	for (i = 1; i <= 8; i++)
 	{
-		D = FMin(Step * i, MaxLook + 500.0);
+		D = Step * i;
 		GroundZ = BBHeliGroundZ(BBHeli.Location + Dir * D);
 		MaxGround = FMax(MaxGround, GroundZ);
+		// Too steep to climb at this speed: slow down so the climb fits (plus a margin to brake)
+		Rise = GroundZ + BBHeli.AltitudeOffset + 0.6 * BBHeliClampAGL(WantedAGL) - BBHeli.Location.Z;
+		if (Rise > 0)
+		{
+			BBHeliTerrainSpeedCap = FMin(BBHeliTerrainSpeedCap, FMax(D / (Rise / BB_HeliClimbRate + 2.5), 250.0));
+		}
 	}
 	BBHeliTerrainZ = MaxGround + BBHeliClampAGL(WantedAGL) + BBHeli.AltitudeOffset;
 	return BBHeliTerrainZ;
@@ -913,6 +992,11 @@ function BBHeliSteer(float DeltaTime)
 			// Rising ground ahead: slow down while climbing
 			DesiredVel *= 0.4;
 		}
+		if (VSize(DesiredVel) > BBHeliTerrainSpeedCap)
+		{
+			DesiredVel = Normal(DesiredVel) * BBHeliTerrainSpeedCap;
+		}
+		TargetZ += BBHeliSeparate(DesiredVel);
 	}
 
 	// --- Collective ---
@@ -1711,6 +1795,10 @@ function BBHeliThink()
 			{
 				break;
 			}
+			if (BBHeliPadBusy() && BBHeliTaskTime() < 20.0)
+			{
+				break;
+			}
 			if (BBHeli.CurrentRPM >= BBHeli.NormalRPM * 0.95 || BBHeliTaskTime() > 25.0)
 			{
 				BBHeliHoldStart = 0;
@@ -2014,7 +2102,7 @@ function bool BBHeliHoldForHuman()
 		BBHeliHoldStart = WorldInfo.TimeSeconds;
 		`log("[BetterBots][Heli]"@BBName()@"waits on the ground for the human at the heli base");
 	}
-	if (WorldInfo.TimeSeconds - BBHeliHoldStart > 120.0)
+	if (WorldInfo.TimeSeconds - BBHeliHoldStart > 30.0)
 	{
 		return false;
 	}
@@ -2031,6 +2119,61 @@ function BBFreeIdleGunnerRole()
 	{
 		BBFreePilotRole();
 	}
+}
+
+/**
+ * Keeps clear of other helicopters (rotor strikes): pushes DesiredVel away
+ * from any within 60 m and returns extra height for one of each pair.
+ */
+function float BBHeliSeparate(out vector DesiredVel)
+{
+	local ROVehicleHelicopter O;
+	local vector Off;
+	local float D, D2, Lift;
+
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', O)
+	{
+		// Parked helis don't count (we land next to them at base)
+		if (O == BBHeli || O.Health <= 0 || O.bDeleteMe || O.bVehicleOnGround || O.bWasChassisTouchingGroundLastTick)
+		{
+			continue;
+		}
+		Off = BBHeli.Location - O.Location;
+		D = VSize(Off);
+		if (D > 3000.0)
+		{
+			continue;
+		}
+		Off.Z = 0;
+		D2 = VSize(Off);
+		if (D2 < 50.0)
+		{
+			Off = vect(0,1,0) * ((string(BBHeli.Name) > string(O.Name)) ? 1.0 : -1.0);
+		}
+		DesiredVel += Normal(Off) * FMin((3000.0 - D) * 0.8, 1200.0);
+		// One of the two climbs over the other
+		if (D2 < 2500.0 && string(BBHeli.Name) > string(O.Name))
+		{
+			Lift = FMax(Lift, 900.0);
+		}
+	}
+	return Lift;
+}
+
+/** Another heli close by is taking off or landing: wait so the rotors don't meet */
+function bool BBHeliPadBusy()
+{
+	local ROVehicleHelicopter O;
+
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', O)
+	{
+		if (O != BBHeli && O.Health > 0 && VSize2D(O.Location - BBHeli.Location) < 3000.0 &&
+			!(O.bVehicleOnGround || O.bWasChassisTouchingGroundLastTick) && O.Altitude < 2500)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 function bool BBHeliAAThreat()
