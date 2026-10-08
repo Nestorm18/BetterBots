@@ -48,7 +48,7 @@
 //      crossing open ground (clear line of sight to it).
 //=============================================================================
 
-class BBAIController extends BBHeliAI
+class BBAIController extends BBSquadAI
 	config(Game)
 	dependson(ROSquadReplicationInfo);
 
@@ -191,13 +191,13 @@ function BBChooseMode()
 				BBMode = BBM_SupportFire;
 				break;
 			case RORIT_Scout:
-				BBMode = (FRand() < 0.7) ? BBM_Flanker : BBM_Assault;
+				BBMode = (FRand() < 0.7 * BBFlankScale()) ? BBM_Flanker : BBM_Assault;
 				break;
 			case RORIT_Rifleman:
-				BBMode = (FRand() < 0.4) ? BBM_Flanker : BBM_Assault;
+				BBMode = (FRand() < 0.4 * BBFlankScale()) ? BBM_Flanker : BBM_Assault;
 				break;
 			case RORIT_Engineer:
-				BBMode = (FRand() < 0.3) ? BBM_Flanker : BBM_Assault;
+				BBMode = (FRand() < 0.3 * BBFlankScale()) ? BBM_Flanker : BBM_Assault;
 				break;
 			default:
 				BBMode = BBM_Assault;
@@ -315,7 +315,7 @@ function bool BBMaybeJoinFight()
 	local int HotIndex;
 
 	// Flankers on their way round are already heading for the fight
-	if (!bBBJoinsFights || bBBReinforcing || bBBFlankStaging || BBMorale < 0.35)
+	if (!bBBJoinsFights || bBBReinforcing || bBBFlankStaging || BBMorale < 0.35 || BBHasObjectiveOrder())
 	{
 		return false;
 	}
@@ -561,6 +561,7 @@ function ChooseEngageStyle(optional int ID)
 
 function EvaluateObjectives()
 {
+	BBCheckObjectiveOrder();
 	if (BBMode == BBM_Escort && Pawn != none && Pawn.Health > 0 && Vehicle(Pawn) == none)
 	{
 		BBUpdateEscort();
@@ -577,7 +578,7 @@ function FindNewObjective()
 	local ROObjective Obj;
 	local int NewIndex;
 
-	if (bBBReinforcing)
+	if (bBBReinforcing && !BBHasObjectiveOrder())
 	{
 		if (BBHeat(BBGetObjective(BBReinforceIndex)) >= 1.0)
 		{
@@ -608,7 +609,10 @@ function FindNewObjective()
 		bBBFlankStaged = false;
 	}
 	CurrentOrders.OrderIndex = NewIndex;
-	CurrentOrders.OrderType = ROORDER_Resume;
+	if (!BBHasObjectiveOrder())
+	{
+		CurrentOrders.OrderType = ROORDER_Resume;
+	}
 	Obj = BBGetObjective(NewIndex);
 
 	// Reuse a post we have not finished holding (e.g. after a fight)
@@ -661,6 +665,118 @@ function ROObjective BBGetObjective(int Idx)
 		return none;
 	}
 	return ROGIT.Objectives[Idx];
+}
+
+function bool BBIsSupremacy()
+{
+	return ROGameInfoSupremacy(WorldInfo.Game) != none;
+}
+
+/** Skirmish: fewer flankers, the squad moves together */
+function float BBFlankScale()
+{
+	return (ROGameInfoSkirmish(WorldInfo.Game) != none) ? 0.5 : 1.0;
+}
+
+/** Objective chosen by our bot squad leader (-1 if none, human leader, or we are on a role post) */
+function int BBSquadLeaderObjective()
+{
+	local ROPlayerReplicationInfo ROPRI;
+	local BBAIController SL;
+
+	ROPRI = ROPlayerReplicationInfo(PlayerReplicationInfo);
+	if (ROPRI == none || ROPRI.Squad == none || BBMode == BBM_Overwatch || BBMode == BBM_Command || BBMode == BBM_Escort)
+	{
+		return -1;
+	}
+	SL = BBAIController(ROPRI.Squad.GetSquadLeader());
+	if (SL == none || SL == self || SL.Pawn == none || SL.Pawn.Health <= 0)
+	{
+		return -1;
+	}
+	return SL.CurrentOrders.OrderIndex;
+}
+
+/*-----------------------------------------------------------------------------
+	Squad leader orders (human): attack/defend an objective
+	The stock code stores them but does nothing with them (TODO in
+	HandleExternalOrders). Here they drive the normal objective logic.
+-----------------------------------------------------------------------------*/
+
+function bool BBHasObjectiveOrder()
+{
+	local ROGameInfoTerritories ROGIT;
+
+	if (CurrentOrders.OrderType != ROORDER_Attack && CurrentOrders.OrderType != ROORDER_Defend)
+	{
+		return false;
+	}
+	ROGIT = ROGameInfoTerritories(WorldInfo.Game);
+	return ROGIT != none && CurrentOrders.OrderIndex >= 0 && CurrentOrders.OrderIndex < ROGIT.Objectives.Length &&
+		ROGIT.Objectives[CurrentOrders.OrderIndex] != none;
+}
+
+/** Follow/Move stay external (stock states); attack/defend go through our objective logic */
+function bool HasExternalOrders()
+{
+	return CurrentOrders.OrderType == ROORDER_Follow || CurrentOrders.OrderType == ROORDER_Move;
+}
+
+/** Attack: done once the point is ours. Defend: until another order or the point closes */
+function BBCheckObjectiveOrder()
+{
+	local ROObjective Obj;
+
+	if (!BBHasObjectiveOrder())
+	{
+		return;
+	}
+	Obj = BBGetObjective(CurrentOrders.OrderIndex);
+	if (!Obj.bActive || (CurrentOrders.OrderType == ROORDER_Attack && BBIsMine(Obj) && !Obj.bCapping))
+	{
+		`log("[BetterBots]"@GetPName()@"order on"@Obj.ObjName@"complete");
+		CurrentOrders.OrderType = ROORDER_Resume;
+	}
+}
+
+function ReceivedNewOrders(Controller OrderGiver, int Orders, optional vector OrdersLocation, optional int OrdersIndex, optional Pawn TargetPawn)
+{
+	super.ReceivedNewOrders(OrderGiver, Orders, OrdersLocation, OrdersIndex, TargetPawn);
+
+	// Act on attack/defend right away
+	if ((Orders == ROORDER_Attack || Orders == ROORDER_Defend) && Pawn != none && Pawn.Health > 0 && Vehicle(Pawn) == none &&
+		BBHasObjectiveOrder())
+	{
+		`log("[BetterBots]"@GetPName()@"ordered to"@((Orders == ROORDER_Attack) ? "attack" : "defend")@BBGetObjective(OrdersIndex).ObjName);
+		bBBReinforcing = false;
+		bBBFlankStaging = false;
+		bBBFlankStaged = false;
+		if (!bCantOverrideState)
+		{
+			FindNewObjective();
+		}
+	}
+}
+
+/*-----------------------------------------------------------------------------
+	Hooks used by BBSquadAI (commander, fixed MGs)
+-----------------------------------------------------------------------------*/
+
+function bool BBDefendingObjective(out ROObjective Obj)
+{
+	Obj = BBGetObjective(CurrentOrders.OrderIndex);
+	return Obj != none && Obj.bActive && BBIsMine(Obj) && Pawn != none && VSize2D(Pawn.Location - Obj.Location) < 5000.0;
+}
+
+function bool BBTeamAttacking()
+{
+	return !BBIsDefender();
+}
+
+function bool BBMayManTurret()
+{
+	return (BBMode == BBM_Assault || BBMode == BBM_SupportFire || BBMode == BBM_Rally || BBMode == BBM_Flanker) &&
+		!bBBReinforcing && !bBBFlankStaging && !HasExternalOrders() && WorldInfo.TimeSeconds > BBFallBackUntil;
 }
 
 function bool BBIsDefender()
@@ -787,7 +903,8 @@ function int GetBestObjectiveIndex()
 	local array<int> Assigned;
 	local int i, BestIndex, NumMine, NumOther, NumThreatened;
 	local float Score, BestScore;
-	local bool bDefender;
+	local bool bDefender, bSupremacy;
+	local int SquadObjective;
 
 	ROGIT = ROGameInfoTerritories(WorldInfo.Game);
 	if (ROGIT == none || Pawn == none || ROGIT.Objectives.Length == 0)
@@ -795,8 +912,16 @@ function int GetBestObjectiveIndex()
 		return super.GetBestObjectiveIndex();
 	}
 
+	// The squad leader (human) ordered this objective
+	if (BBHasObjectiveOrder())
+	{
+		return CurrentOrders.OrderIndex;
+	}
+
 	bDefender = BBIsDefender();
+	bSupremacy = BBIsSupremacy();
 	BBCountActive(NumMine, NumOther, NumThreatened);
+	SquadObjective = BBSquadLeaderObjective();
 
 	// How many teammate bots are already going to each objective
 	Assigned.Length = ROGIT.Objectives.Length;
@@ -820,7 +945,31 @@ function int GetBestObjectiveIndex()
 			continue;
 		}
 
-		if (bDefender)
+		if (bSupremacy)
+		{
+			// Everything is open: ~30 % hold our points, the rest push the
+			// nearest valuable enemy/neutral point; all answer a point being taken
+			if (BBIsMine(Obj))
+			{
+				if (BBIsThreatened(Obj))
+				{
+					Score = (bBBResponder ? 700.0 : 350.0) + Obj.CapProgress * 600.0;
+				}
+				else
+				{
+					Score = (BBRoleRoll < 0.3) ? 560.0 : 150.0;
+				}
+			}
+			else
+			{
+				Score = 500.0;
+				if (BBIsBeingCapturedByUs(Obj))
+				{
+					Score += 200.0 + Obj.CapProgress * 200.0;
+				}
+			}
+		}
+		else if (bDefender)
 		{
 			if (BBIsThreatened(Obj))
 			{
@@ -871,6 +1020,12 @@ function int GetBestObjectiveIndex()
 
 		// Fights draw bots in from both teams
 		Score += (bBBJoinsFights ? 300.0 : 100.0) * FMin(BBHeat(Obj), 2.0);
+
+		// Bot squads stick together on their leader's objective
+		if (i == SquadObjective)
+		{
+			Score += 250.0;
+		}
 
 		// Lower priority value = earlier objective in the map's sequence
 		Score -= 40.0 * Min(BBGetPriority(Obj), 10);
@@ -959,6 +1114,12 @@ function bool BBShouldMoveInZone()
  */
 function bool ShouldFindNewObjective(bool CurrentlyInHoldObjective)
 {
+	// Walking to a fixed MG
+	if (BBTurret != none)
+	{
+		return false;
+	}
+
 	// Fell back under fire: stay low for a while before going again
 	if (WorldInfo.TimeSeconds < BBFallBackUntil)
 	{
@@ -1457,6 +1618,52 @@ function vector BBSuppressAimPoint()
 	return P;
 }
 
+/*-----------------------------------------------------------------------------
+	Following (squad leader "follow me", radioman escorting the commander):
+	when the leader stops, crouch and watch outward instead of staring at him
+-----------------------------------------------------------------------------*/
+
+state Following
+{
+	event Tick(float DeltaTime)
+	{
+		super.Tick(DeltaTime);
+		BBFollowWatch();
+	}
+}
+
+function BBFollowWatch()
+{
+	local Pawn Leader;
+	local vector Out;
+
+	Leader = Pawn(MyFollowActor);
+	if (Pawn == none || Leader == none || Vehicle(Pawn) != none || Enemy != none)
+	{
+		return;
+	}
+	if (VSize(Leader.Velocity) < 40.0 && VSize(Pawn.Velocity) < 40.0 && VSizeSq(Leader.Location - Pawn.Location) < 2250000.0)
+	{
+		Out = Pawn.Location - Leader.Location;
+		Out.Z = 0;
+		if (VSize(Out) < 50.0)
+		{
+			Out = Vector(Pawn.Rotation);
+			Out.Z = 0;
+		}
+		Focus = none;
+		SetFocalPoint(Pawn.Location + Normal(Out) * 1500.0 + vect(0,0,40));
+		if (!Pawn.bIsCrouched && !Pawn.bIsProning)
+		{
+			Pawn.ShouldCrouch(true);
+		}
+	}
+	else if (Pawn.bIsCrouched && VSize(Leader.Velocity) > 150.0)
+	{
+		Pawn.ShouldCrouch(false);
+	}
+}
+
 state BBSuppressing
 {
 	function EvaluateObjectives() {}
@@ -1750,7 +1957,7 @@ function BBCombatTick()
 		return;
 	}
 
-	if (BBReactToHelis() || BBTrySuppressiveFire() || BBTrySmoke())
+	if (BBTryUseTurret() || BBReactToHelis() || BBTrySuppressiveFire() || BBTrySmoke())
 	{
 		return;
 	}

@@ -58,6 +58,23 @@ Copia y pega en la consola. MinPlayers=64 llena los dos bandos (32 por bando). B
    open VNTE-SongBe?MinPlayers=64?mutator=BetterBots.BBMutator
 
 
+COMPORTAMIENTO GENERAL (además de helicópteros)
+   - Comandante bot (ambos bandos): pide artillería, napalm o
+     cañonero sobre grupos de enemigos vistos cerca de un objetivo.
+     El norvietnamita usa emboscada, Ruta Ho Chi Minh y antiaéreo
+     (solo con helicópteros enemigos en el aire). El americano
+     necesita a su radioperador al lado o una radio cerca.
+   - Supremacía: ~30 % defiende puntos propios, el resto ataca.
+     Escaramuza: menos flanqueos.
+   - Si eres líder de escuadra: las órdenes de atacar/defender un
+     objetivo se cumplen (atacar: hasta capturarlo; defender: hasta
+     otra orden). "Seguidme": formación abierta; cuando paras se
+     agachan vigilando hacia fuera.
+   - Las escuadras con líder bot van juntas a su objetivo.
+   - Ametralladoras fijas (DShK/M2): las usan defensores cercanos
+     cuando hay enemigos o helicópteros; las dejan si les flanquean,
+     si cae el punto, si te acercas tú o tras 1 min sin blancos.
+
 COMANDOS EN PARTIDA (consola)
 -----------------------------
    JoinSquad 0     Unirte a la escuadra 0 (1, 2...), aunque esté llena:
