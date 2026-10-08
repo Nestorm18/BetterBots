@@ -51,6 +51,8 @@ const BB_HumanTakeDist		= 750.0;	// 15 m
 const BB_HumanReserveDist	= 2500.0;	// Free helis this close to a human pilot are left for them
 const BB_FrontFarDist		= 15000.0;	// 300 m: closer than this, bots walk instead of flying
 
+var array<vector>	PadLocs;		// Heli pads seen, by team (spawn choice)
+var array<int>		PadTeams;
 var array<BBThreat>	Threats;
 var array<BBMark>	Marks;
 var array<BBStrike>	Strikes;			// "Someone is shooting at me" calls for the attack helis
@@ -519,14 +521,21 @@ function int BBFreeRideSeats(ROVehicleHelicopter H)
 	return N;
 }
 
-/** Points the spawn selection of dead bots at a heli that wants them (stock spawn code does the rest) */
+/**
+ * Respawn choice for dead bots. When the team has spawns away from the heli
+ * base (forward spawns), those come first and only ~10 % ride a Huey in;
+ * with only the heli base, every free seat in a Huey that wants passengers
+ * is used. Pilots and tank crews keep the stock choice.
+ */
 function BBUpdateHeliSpawns()
 {
-	local int Team, i, Idx[2], Room[2];
+	local int Team, i, Idx[2], Room[2], NumFwd[2];
+	local int Fwd0[16], Fwd1[16];
 	local ROTeamInfo ROTI;
 	local ROVehicleHelicopter H;
 	local BBAIController Bot;
 	local ROPlayerReplicationInfo ROPRI;
+	local int Pick;
 
 	for (Team = 0; Team < 2; Team++)
 	{
@@ -546,6 +555,24 @@ function BBUpdateHeliSpawns()
 				break;
 			}
 		}
+		// Infantry spawns away from the heli base
+		for (i = 0; i < ArrayCount(ROTI.AvailableSpawnLocations) && NumFwd[Team] < 16; i++)
+		{
+			if (ROTI.AvailableSpawnLocations[i] != none && ROTI.AvailableSpawnLocations[i].PlayerStartList.Length > 0 &&
+				ROTI.AvailableSpawnLocations[i].PlayerStartList[0].bEnabled &&
+				!BBNearHeliBase(Team, ROTI.AvailableSpawnLocations[i].PlayerStartList[0].Location))
+			{
+				if (Team == 0)
+				{
+					Fwd0[NumFwd[0]] = i;
+				}
+				else
+				{
+					Fwd1[NumFwd[1]] = i;
+				}
+				NumFwd[Team]++;
+			}
+		}
 	}
 
 	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
@@ -556,23 +583,82 @@ function BBUpdateHeliSpawns()
 			continue;
 		}
 		Team = Bot.GetTeamNum();
-		if (Team < 2 && Idx[Team] >= 0 && Room[Team] > 0 && Bot.Pawn == none && Bot.BBCrewHeli == none &&
-			ROPRI.RoleInfo != none && !ROPRI.RoleInfo.bIsPilot && !ROPRI.RoleInfo.bCanBeTankCrew)
+		if (Bot.Pawn != none || Team > 1 || Bot.BBCrewHeli != none || ROPRI.RoleInfo == none ||
+			ROPRI.RoleInfo.bIsPilot || ROPRI.RoleInfo.bCanBeTankCrew)
 		{
-			if (!Bot.bBBHeliSpawnSel)
+			// Alive (or not ours to steer): back to its own choice, roll again next death
+			if (Bot.bBBHeliSpawnSel)
 			{
-				Bot.BBSavedSpawnSel = ROPRI.SpawnSelection;
-				Bot.bBBHeliSpawnSel = true;
+				ROPRI.SpawnSelection = Bot.BBSavedSpawnSel;
+				Bot.bBBHeliSpawnSel = false;
 			}
+			Bot.bBBSpawnRolled = false;
+			continue;
+		}
+		if (!Bot.bBBSpawnRolled)
+		{
+			Bot.bBBSpawnRolled = true;
+			Bot.bBBSpawnInHeli = (NumFwd[Team] == 0) || FRand() < 0.1;
+			Bot.BBSpawnFwdPick = Rand(16);
+		}
+		if (!Bot.bBBHeliSpawnSel)
+		{
+			Bot.BBSavedSpawnSel = ROPRI.SpawnSelection;
+			Bot.bBBHeliSpawnSel = true;
+		}
+		if (Bot.bBBSpawnInHeli && Idx[Team] >= 0 && Room[Team] > 0)
+		{
 			ROPRI.SpawnSelection = byte(110 + Idx[Team]);
 			Room[Team]--;
 		}
-		else if (Bot.bBBHeliSpawnSel)
+		else if (NumFwd[Team] > 0)
+		{
+			Pick = Bot.BBSpawnFwdPick % NumFwd[Team];
+			ROPRI.SpawnSelection = byte((Team == 0) ? Fwd0[Pick] : Fwd1[Pick]);
+		}
+		else
 		{
 			ROPRI.SpawnSelection = Bot.BBSavedSpawnSel;
-			Bot.bBBHeliSpawnSel = false;
 		}
 	}
+}
+
+/** Within ~150 m of one of the team's heli pads (pads are remembered while their heli is destroyed) */
+function bool BBNearHeliBase(int Team, vector P)
+{
+	local ROVehicleHelicopter H;
+	local int i;
+	local bool bKnown;
+
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
+	{
+		if (H.ParentFactory == none || H.GetTeamNum() > 1)
+		{
+			continue;
+		}
+		bKnown = false;
+		for (i = 0; i < PadLocs.Length; i++)
+		{
+			if (PadTeams[i] == H.GetTeamNum() && VSize2D(PadLocs[i] - HeliHome(H)) < 500.0)
+			{
+				bKnown = true;
+				break;
+			}
+		}
+		if (!bKnown)
+		{
+			PadLocs.AddItem(HeliHome(H));
+			PadTeams.AddItem(H.GetTeamNum());
+		}
+	}
+	for (i = 0; i < PadLocs.Length; i++)
+	{
+		if (PadTeams[i] == Team && VSize2D(PadLocs[i] - P) < 7500.0)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 function bool BBPilotOnTheWay(ROVehicleHelicopter H)

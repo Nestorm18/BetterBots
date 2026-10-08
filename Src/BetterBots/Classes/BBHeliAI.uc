@@ -157,6 +157,9 @@ var		bool				bBBRideHumanPilot;
 // Respawn selection pointed at a heli by the manager
 var		bool				bBBHeliSpawnSel;
 var		byte				BBSavedSpawnSel;
+var		bool				bBBSpawnRolled;
+var		bool				bBBSpawnInHeli;
+var		int					BBSpawnFwdPick;
 
 // Riders and gunners
 var		bool				bBBHeliRider;
