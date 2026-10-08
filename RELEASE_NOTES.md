@@ -32,9 +32,9 @@ First public release of BetterBots, an offline bot AI overhaul for **Rising Stor
 ## Install
 1. Copy `Mod/BetterBots.u` to `Documents\My Games\Rising Storm 2\ROGame\Unpublished\CookedPC\Script\`.
 2. Add `-useunpublished` to the game's Steam launch options.
-3. In game, open the console (`~`) and run `open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator`.
+3. In game, open the console (`~`, or `º` on Spanish keyboards) and run `open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator`.
 
-Full instructions and the map list are in the [README](README.md).
+Full instructions and the map list are in the [README](https://github.com/Nestorm18/BetterBots#readme).
 
 ## Known limitations
 - **Offline only.**
@@ -78,9 +78,9 @@ Primera versión pública de BetterBots, una mejora de la IA de los bots offline
 ## Instalación
 1. Copia `Mod/BetterBots.u` en `Documentos\My Games\Rising Storm 2\ROGame\Unpublished\CookedPC\Script\`.
 2. Añade `-useunpublished` a las opciones de lanzamiento del juego en Steam.
-3. En el juego, abre la consola (`~`) y escribe `open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator`.
+3. En el juego, abre la consola (`º` en teclado español, `~` en inglés) y escribe `open VNTE-CuChi?MinPlayers=64?mutator=BetterBots.BBMutator`.
 
-Instrucciones completas y lista de mapas en el [README en español](README.es.md).
+Instrucciones completas y lista de mapas en el [README en español](https://github.com/Nestorm18/BetterBots/blob/master/README.es.md).
 
 ## Limitaciones conocidas
 - **Solo offline.**
