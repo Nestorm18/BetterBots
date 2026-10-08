@@ -120,6 +120,7 @@ var		float	BBNextRocketAtHeli;
 var		Actor	BBSuppressActor;			// Moving target for BBSuppressing (a helicopter)
 var		float	BBLastSpawnFix;				// Off-navmesh recovery (replaces the stock random-spawn teleport)
 var		vector	BBBadStartLoc;
+var		bool	bBBAmbushCrouch;
 
 event PostBeginPlay()
 {
@@ -425,7 +426,134 @@ function vector BBPointNearObjective(ROObjective Obj, float Back, float Side)
 
 	Target = Obj.Location - Fwd * Back + Right * Side;
 	Fallback = NewGetObjectiveLocation();
-	return GetValidLocationNear(Target, Fallback);
+	Target = GetValidLocationNear(Target, Fallback);
+	// Defenders: a spot with something solid toward the enemy, not open ground
+	if (BBIsDefender())
+	{
+		Target = BBFindCover(Target, 700.0, Fwd);
+	}
+	return Target;
+}
+
+/*-----------------------------------------------------------------------------
+	Cover for defenders: walls, rocks, trees or roofs instead of open beach
+-----------------------------------------------------------------------------*/
+
+/** How good P is to wait in ambush, facing ThreatDir (0 = open ground) */
+function float BBCoverScore(vector P, vector ThreatDir)
+{
+	local vector HitLocation, HitNormal, Eye, Side;
+	local float Score;
+	local int i;
+
+	// Something in front at crouched eye height (low wall, rock, sandbags)
+	Eye = P + vect(0,0,50);
+	if (Trace(HitLocation, HitNormal, Eye + ThreatDir * 450.0, Eye, false) != none)
+	{
+		Score += 3.0;
+		// ...and tall enough to stand behind
+		if (Trace(HitLocation, HitNormal, P + vect(0,0,110) + ThreatDir * 450.0, P + vect(0,0,110), false) != none)
+		{
+			Score += 1.0;
+		}
+	}
+	// Roof or canopy overhead (hidden from helicopters)
+	if (Trace(HitLocation, HitNormal, P + vect(0,0,2500), P + vect(0,0,100), false) != none)
+	{
+		Score += 1.5;
+	}
+	// Enclosed on the sides (trench, ruins, between buildings)
+	Side.X = -ThreatDir.Y;
+	Side.Y = ThreatDir.X;
+	for (i = -1; i <= 1; i += 2)
+	{
+		if (Trace(HitLocation, HitNormal, Eye + Side * (300.0 * i), Eye, false) != none)
+		{
+			Score += 0.5;
+		}
+	}
+	return Score;
+}
+
+/** Best covered spot among a few reachable points around Center (Center itself if nothing beats it) */
+function vector BBFindCover(vector Center, float Radius, vector ThreatDir)
+{
+	local vector Cand, Best, Off;
+	local float Score, BestScore;
+	local int i;
+
+	ThreatDir.Z = 0;
+	ThreatDir = Normal(ThreatDir);
+	if (VSizeSq(ThreatDir) < 0.5)
+	{
+		return Center;
+	}
+	Best = Center;
+	BestScore = BBCoverScore(Center, ThreatDir) + 0.5;	// Small bonus: no detour
+	for (i = 0; i < 8; i++)
+	{
+		Off.X = BBRand(-Radius, Radius);
+		Off.Y = BBRand(-Radius, Radius);
+		Cand = GetValidLocationNear(Center + Off, Center);
+		if (VSizeSq(Cand - Center) > Radius * Radius * 2.5)
+		{
+			continue;
+		}
+		Score = BBCoverScore(Cand, ThreatDir) - VSize2D(Cand - Center) / Radius;
+		if (Score > BestScore)
+		{
+			BestScore = Score;
+			Best = Cand;
+		}
+	}
+	return Best;
+}
+
+/** Direction the enemy comes from at this objective (from our spawn through it) */
+function vector BBThreatDirAt(ROObjective Obj)
+{
+	local vector Fwd;
+
+	if (Enemy != none && Pawn != none && VSizeSq(Enemy.Location - Obj.Location) < 25000000.0)
+	{
+		Fwd = Enemy.Location - Obj.Location;
+	}
+	else
+	{
+		Fwd = Obj.Location - LastSpawnLocation;
+		if (LastSpawnLocation == vect(0,0,0) && Pawn != none)
+		{
+			Fwd = Obj.Location - Pawn.Location;
+		}
+	}
+	Fwd.Z = 0;
+	return Normal(Fwd);
+}
+
+/** Defender in place with nobody in sight: crouch and wait (ambush). Up again to move. */
+function BBDefenderAmbush()
+{
+	local ROObjective Obj;
+
+	if (!BBIsDefender() || Pawn.bIsProning)
+	{
+		return;
+	}
+	Obj = BBGetObjective(CurrentOrders.OrderIndex);
+	if (Obj != none && VSize2D(Pawn.Velocity) < 40.0 && VSize2D(Pawn.Location - Obj.Location) < BBObjectiveRadius(Obj) + 2500.0 &&
+		(Enemy == none || !LineOfSightTo(Enemy)))
+	{
+		if (!Pawn.bIsCrouched)
+		{
+			Pawn.ShouldCrouch(true);
+			bBBAmbushCrouch = true;
+		}
+	}
+	else if (bBBAmbushCrouch && VSize2D(Pawn.Velocity) > 60.0)
+	{
+		Pawn.ShouldCrouch(false);
+		bBBAmbushCrouch = false;
+	}
 }
 
 /** Picks a post for modes that do not go into the capture zone. Returns false to use the stock approach. */
@@ -1291,6 +1419,29 @@ function bool ShouldFindNewObjective(bool CurrentlyInHoldObjective)
  * Same as the stock version, with the midpoint fixed and a fallback for
  * objective volumes that have no cached pawn locations.
  */
+/** Defenders inside the zone: the best covered of a few of its spots */
+function vector BBCoveredZoneSpot(ROObjective Obj)
+{
+	local vector Cand, Best, ThreatDir;
+	local float Score, BestScore;
+	local int i, N;
+
+	ThreatDir = BBThreatDirAt(Obj);
+	N = Obj.ObjVolume.ValidLocationsForPawns.Length;
+	BestScore = -1000.0;
+	for (i = 0; i < 8; i++)
+	{
+		Cand = Obj.ObjVolume.ValidLocationsForPawns[Rand(N)];
+		Score = BBCoverScore(Cand, ThreatDir) + FRand() * 0.5;
+		if (Score > BestScore)
+		{
+			BestScore = Score;
+			Best = Cand;
+		}
+	}
+	return Best;
+}
+
 function vector NewGetObjectiveLocation()
 {
 	local ROObjective Obj;
@@ -1304,7 +1455,14 @@ function vector NewGetObjectiveLocation()
 
 	if (Obj.ObjVolume != none && Obj.ObjVolume.ValidLocationsForPawns.Length > 0)
 	{
-		NewLoc = Obj.ObjVolume.ValidLocationsForPawns[Rand(Obj.ObjVolume.ValidLocationsForPawns.Length)];
+		if (BBIsDefender())
+		{
+			NewLoc = BBCoveredZoneSpot(Obj);
+		}
+		else
+		{
+			NewLoc = Obj.ObjVolume.ValidLocationsForPawns[Rand(Obj.ObjVolume.ValidLocationsForPawns.Length)];
+		}
 	}
 	else
 	{
@@ -2013,6 +2171,7 @@ function BBCombatTick()
 	{
 		return;
 	}
+	BBDefenderAmbush();
 	BBTryBound();
 }
 
