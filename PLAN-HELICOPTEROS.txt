@@ -14,6 +14,9 @@ emergencia, prioridad humana y reaccion norvietnamita.
 Anadido despues: tiros lejanos, tacticas adaptativas por bajas, moral en
 la retirada, Cobra contra quien dispara a un heli aliado, aviso/marca del
 Loach, planeo hacia la base sin motor y comando BBHeliDebug.
+Tambien: vuelta a base rodeando objetivos activos; altura de transito por
+tipo (Loach ~25 m, Huey/Bushranger ~40 m, Cobra ~60 m), 10-20 m mas baja
+cerca del frente o de zonas de peligro. El plan queda completo: falta probar.
 Codigo: BBHeliManager.uc (coordinacion) y BBHeliAI.uc (vuelo y tripulacion).
 
 

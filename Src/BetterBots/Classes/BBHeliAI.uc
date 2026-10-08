@@ -697,6 +697,23 @@ function float BBNavRoute(vector P, float AGL, float Speed)
 			bBBHeliHasWaypoint = true;
 			`log("[BetterBots][Heli]"@BBName()@"detours around danger at"@DangerLoc);
 		}
+		// Flying home: keep clear of the fighting even if nobody shot at us yet
+		else if (BBHeliTask == 'RTB' && BBHeliDist2D(P) > 12000.0 &&
+			BBHM.BBObjectiveOnRoute(BBHeli.Location, P, 7500.0, DangerLoc))
+		{
+			Dir = P - BBHeli.Location;
+			Dir.Z = 0;
+			Dir = Normal(Dir);
+			Side = vect(0,0,1) cross Dir;
+			// The side with less remembered danger
+			if (BBHM.BBDanger(GetTeamNum(), DangerLoc + Side * 10000.0, 6000.0) > BBHM.BBDanger(GetTeamNum(), DangerLoc - Side * 10000.0, 6000.0))
+			{
+				Side = -Side;
+			}
+			BBHeliWaypoint = DangerLoc + Side * 10000.0;
+			bBBHeliHasWaypoint = true;
+			`log("[BetterBots][Heli]"@BBName()@"going home around the objective at"@DangerLoc);
+		}
 	}
 	if (bBBHeliHasWaypoint)
 	{
@@ -712,6 +729,35 @@ function float BBNavRoute(vector P, float AGL, float Speed)
 	}
 	BBNavMove(P, AGL, Speed);
 	return BBHeliDist2D(P);
+}
+
+/**
+ * Transit height by type (Loach ~25 m, Huey/Bushranger ~40 m, Cobra ~60 m),
+ * 10-20 m lower near the fighting or remembered danger.
+ */
+function float BBHeliCruiseAGL()
+{
+	local float AGL, Lower;
+
+	switch (BBHeliMission)
+	{
+		case 'Scout':	AGL = 1250.0; break;
+		case 'Lift':
+		case 'Gunship':	AGL = 2000.0; break;
+		default:		AGL = BB_HeliCruiseAGL;
+	}
+	if (BBGetHM() != none && BBHeliMission != 'Test' && BBHeliMission != 'Goto')
+	{
+		if (BBHM.BBFrontDistance(BBHeli.Location) < 20000.0)
+		{
+			Lower = 500.0;
+		}
+		if (BBHM.BBDanger(GetTeamNum(), BBHeli.Location, 8000.0) > 20.0)
+		{
+			Lower += 500.0;
+		}
+	}
+	return FMax(AGL - Lower, 900.0);
 }
 
 /** Circle Center at Radius; Speed along the circle */
@@ -1666,7 +1712,7 @@ function BBHeliThink()
 				BBHeliSetTask('Orbit');
 				break;
 			}
-			Dist = BBNavRoute(BBHeliDest, BB_HeliCruiseAGL, BB_HeliCruiseSpeed);
+			Dist = BBNavRoute(BBHeliDest, BBHeliCruiseAGL(), BB_HeliCruiseSpeed);
 			if (Dist < 700.0 && VSize2D(BBHeli.Velocity) < 400.0)
 			{
 				BBHeliHoldPoint = BBHeliDest;
@@ -1708,7 +1754,7 @@ function BBHeliThink()
 			}
 			if (BBHeliDist2D(BBHeliCenter) > BBHeliOrbitRadius + 6000.0)
 			{
-				BBNavRoute(BBHeliCenter, BB_HeliCruiseAGL, BB_HeliCruiseSpeed);
+				BBNavRoute(BBHeliCenter, BBHeliCruiseAGL(), BB_HeliCruiseSpeed);
 			}
 			else
 			{
@@ -1761,7 +1807,7 @@ function BBHeliThink()
 				BBHeliEvadeVel = BBHeliEvadeVel + (vect(0,0,1) cross Normal(BBHeliEvadeVel)) * BBRandHeli(-900.0, 900.0);
 				BBHeliEvadeVel = Normal(BBHeliEvadeVel) * 2400.0;
 			}
-			BBNavVelocity(BBHeliEvadeVel, FMax(AGL, BB_HeliCruiseAGL) + 1000.0);
+			BBNavVelocity(BBHeliEvadeVel, FMax(AGL, BBHeliCruiseAGL()) + 1000.0);
 			if (BBHeliMission == 'Scout')
 			{
 				BBHeliSpot();
@@ -1778,7 +1824,7 @@ function BBHeliThink()
 			break;
 
 		case 'RTB':
-			Dist = BBNavRoute(BBHeliHome, BB_HeliCruiseAGL, BB_HeliCruiseSpeed);
+			Dist = BBNavRoute(BBHeliHome, BBHeliCruiseAGL(), BB_HeliCruiseSpeed);
 			if (Dist < 2500.0)
 			{
 				BBHeliLandPoint = BBHeliHome;
@@ -2034,7 +2080,7 @@ function BBHeliLiftTransit()
 		BBHeliSetTask('RTB');
 		return;
 	}
-	Dist = BBNavRoute(BBHeliLZ, BB_HeliCruiseAGL, BB_HeliCruiseSpeed);
+	Dist = BBNavRoute(BBHeliLZ, BBHeliCruiseAGL(), BB_HeliCruiseSpeed);
 	if (BBHeliLiftAbortCheck())
 	{
 		return;

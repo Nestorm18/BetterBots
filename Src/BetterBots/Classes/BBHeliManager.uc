@@ -636,6 +636,51 @@ function float BBFrontDistance(vector P)
 	return Best;
 }
 
+/** Active objective within Radius of the From-To segment (not the destination itself) */
+function bool BBObjectiveOnRoute(vector From, vector To, float Radius, out vector ObjLoc)
+{
+	local ROGameInfoTerritories ROGIT;
+	local int i;
+	local vector Dir, P;
+	local float Len, T, Best, D;
+
+	ROGIT = ROGameInfoTerritories(WorldInfo.Game);
+	if (ROGIT == none)
+	{
+		return false;
+	}
+	Dir = To - From;
+	Dir.Z = 0;
+	Len = VSize(Dir);
+	if (Len < 1.0)
+	{
+		return false;
+	}
+	Dir /= Len;
+	Best = Radius;
+	for (i = 0; i < ROGIT.Objectives.Length; i++)
+	{
+		if (ROGIT.Objectives[i] == none || !ROGIT.Objectives[i].bActive || VSize2D(ROGIT.Objectives[i].Location - To) < Radius)
+		{
+			continue;
+		}
+		P = ROGIT.Objectives[i].Location - From;
+		P.Z = 0;
+		T = P dot Dir;
+		if (T < 0 || T > Len)
+		{
+			continue;
+		}
+		D = VSize(P - Dir * T);
+		if (D < Best)
+		{
+			Best = D;
+			ObjLoc = ROGIT.Objectives[i].Location;
+		}
+	}
+	return Best < Radius;
+}
+
 /** Heli sitting at its base, ready to take passengers */
 function bool BBTakesPassengers(ROVehicleHelicopter H)
 {
