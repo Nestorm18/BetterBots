@@ -100,7 +100,14 @@ HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
    - Pilotos con la moral baja se retiran antes. Sin motor, planean
      hacia su base al caer.
    - Ataques: pasadas o tiros lejanos; mantienen el que da bajas.
+   - Antiaereo enemigo activo (o misil en camino): bajan a menos de
+     50 m lo mas rapido posible (el misil solo fija por encima de 75 m).
    Tú tienes prioridad:
+   - Mientras estes en la base de helis (a pie o en un helicoptero en
+     tierra), los bots de los otros helicopteros esperan en tierra
+     (max. 2 min). Si subes al de un bot, despega a los 6 s.
+   - Si te bajas para cambiar de helicoptero, tu artillero bot se baja
+     tambien y se sube contigo al nuevo.
    - Elige un rol de piloto ocupado por bots: un bot en tierra te lo
      cede al momento; si todos vuelan, uno vuelve a base y te lo deja.
    - Con rol de piloto, acércate a menos de 15 m de un helicóptero

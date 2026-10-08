@@ -330,6 +330,15 @@ function BBTick()
 	BBExpireMemory();
 	bMayCrew = BotsMayCrew();
 
+	// The human's own heli gets its crew first (gunners freed by a heli swap go there)
+	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
+	{
+		if (HeliUsable(H) && PlayerController(H.Controller) != none)
+		{
+			BBCrewGuns(H, true);
+		}
+	}
+
 	// First pass: pilots. Gunners only once every usable heli has a pilot.
 	bAllPiloted = true;
 	foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', H)
@@ -424,6 +433,63 @@ function bool BBHumanAboard(ROVehicleHelicopter H)
 	for (i = 1; i < H.Seats.Length; i++)
 	{
 		if (PlayerController(SeatController(H, i)) != none)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * A human of this heli's team is still choosing at the heli base: sitting in
+ * another landed heli there, or on foot near the helis. Bot helis at base
+ * wait for them, so a human can still swap helis and get a crew again.
+ */
+function bool BBHumanAtHeliBase(ROVehicleHelicopter H)
+{
+	local PlayerController PC;
+	local ROVehicleHelicopter Other;
+	local bool bNear;
+
+	foreach WorldInfo.AllControllers(class'PlayerController', PC)
+	{
+		if (PC.Pawn == none || PC.Pawn.Health <= 0 || PC.GetTeamNum() != H.GetTeamNum())
+		{
+			continue;
+		}
+		Other = ROVehicleHelicopter(PC.Pawn);
+		if (Other == none && ROWeaponPawn(PC.Pawn) != none)
+		{
+			Other = ROVehicleHelicopter(ROWeaponPawn(PC.Pawn).MyVehicle);
+		}
+		if (Other != none)
+		{
+			// In a heli of their own, still on the ground at base (ours handles its own wait)
+			if (Other != H && HeliOnGround(Other) && VSize(Other.Location - HeliHome(Other)) < 4000.0)
+			{
+				return true;
+			}
+			continue;
+		}
+		if (Vehicle(PC.Pawn) != none)
+		{
+			continue;
+		}
+		// On foot: a pilot near the heli base, or anyone right next to a landed heli
+		bNear = (HasPilotRole(PC, true) || HasPilotRole(PC, false)) && VSize(PC.Pawn.Location - HeliHome(H)) < 5000.0;
+		if (!bNear)
+		{
+			foreach WorldInfo.AllPawns(class'ROVehicleHelicopter', Other)
+			{
+				if (Other.GetTeamNum() == H.GetTeamNum() && HeliUsable(Other) && HeliOnGround(Other) &&
+					VSize(PC.Pawn.Location - Other.Location) < 1500.0)
+				{
+					bNear = true;
+					break;
+				}
+			}
+		}
+		if (bNear)
 		{
 			return true;
 		}

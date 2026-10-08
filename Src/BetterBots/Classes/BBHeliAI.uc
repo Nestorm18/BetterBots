@@ -43,6 +43,7 @@ const BB_HeliCruiseSpeed	= 2700.0;	// UU/s (~195 km/h)
 const BB_HeliMaxTilt		= 4551.0;	// 25 deg cyclic limit
 const BB_HeliAttackTilt		= 5461.0;	// 30 deg nose down while aiming
 const BB_HeliRunSpeed		= 2400.0;
+const BB_HeliAASafeAGL		= 2500.0;	// 50 m: enemy SAMs only lock helis above 75 m
 
 // Crew assignment (set by BBHeliManager)
 var		ROVehicleHelicopter	BBCrewHeli;
@@ -67,6 +68,7 @@ var		float				BBHeliLoiterTime;
 var		float				BBHeliTerrainZ;
 var		float				BBHeliNextTerrain;
 var		float				BBHeliObstacleUntil;
+var		bool				bBBHeliAAWarned;
 var		float				BBHeliNextLog;
 var		float				BBHeliMaxAGL;
 var		float				BBHeliTouchdownVZ;
@@ -136,6 +138,10 @@ var		vector				BBHeliLZ;
 var		float				BBHeliLZExtra;
 var		float				BBHeliHumanAboardSince;
 var		float				BBHeliNextWaitMsg;
+
+// Waiting at base for a human who may still swap helis
+var		float				BBHeliHoldStart;
+var		float				BBHeliSeatedSince;
 
 // Riders and gunners
 var		bool				bBBHeliRider;
@@ -810,7 +816,7 @@ function BBHeliSteer(float DeltaTime)
 	local float AGL, VZ, DesiredVZ, TargetZ, Collective, SpeedNorm, TargetPitch, TargetRoll;
 	local float InForward, InStrafe, InYaw, Dist, Speed, WantedSpeed, MaxClimb, YawRate;
 	local int YawErr, AimYaw, AimPitch;
-	local bool bAirborne;
+	local bool bAirborne, bAA;
 
 	AGL = BBHeliAGL();
 	VZ = BBHeli.Velocity.Z;
@@ -820,6 +826,22 @@ function BBHeliSteer(float DeltaTime)
 	BBHeliMaxAGL = FMax(BBHeliMaxAGL, AGL);
 	MaxClimb = 500.0;
 	bAirborne = (BBNavMode != NAV_Ground);
+	bAA = bAirborne && BBHeliAAThreat();
+	if (bAA)
+	{
+		// Enemy SAMs only lock helis above 75 m: stay at 50 m or lower
+		BBNavAGL = FMin(BBNavAGL, BB_HeliAASafeAGL);
+		if (!bBBHeliAAWarned)
+		{
+			bBBHeliAAWarned = true;
+			`log("[BetterBots][Heli]"@BBName()@"enemy anti-air active, diving below radar from AGL"@int(AGL));
+			BBHeliTellPassengers("[BetterBots] Antiaereo enemigo: bajamos ya");
+		}
+	}
+	else
+	{
+		bBBHeliAAWarned = false;
+	}
 
 	switch (BBNavMode)
 	{
@@ -903,6 +925,11 @@ function BBHeliSteer(float DeltaTime)
 			{
 				DesiredVZ = -70.0;
 			}
+		}
+		else if (bAA)
+		{
+			// Drop out of the SAM's radar as fast as the rotor allows (the target height is already capped)
+			DesiredVZ = FClamp((TargetZ - BBHeli.Location.Z) * 0.8, (AGL > BB_HeliAASafeAGL + 800.0) ? -1100.0 : -350.0, MaxClimb);
 		}
 		else
 		{
@@ -1667,8 +1694,14 @@ function BBHeliThink()
 	{
 		case 'Spool':
 			BBNavGround();
+			if (BBHeliHoldForHuman())
+			{
+				break;
+			}
 			if (BBHeli.CurrentRPM >= BBHeli.NormalRPM * 0.95 || BBHeliTaskTime() > 25.0)
 			{
+				BBHeliHoldStart = 0;
+				BBHeliSeatedSince = 0;
 				BBHeliSetTask('Takeoff');
 			}
 			break;
@@ -1924,6 +1957,87 @@ function BBHeliThink()
 			}
 			break;
 	}
+}
+
+/**
+ * At base, before takeoff: a human who just got in gets a few seconds to
+ * settle (or change their mind), and while a human is still picking a heli
+ * at the base we stay on the ground (up to 2 min) so they can swap helis
+ * and get a crew again.
+ */
+function bool BBHeliHoldForHuman()
+{
+	local bool bHold;
+
+	if (BBGetHM() == none || VSize(BBHeli.Location - BBHM.HeliHome(BBHeli)) > 4000.0 || bBBHeliCede)
+	{
+		return false;
+	}
+	if (BBHM.BBHumanAboard(BBHeli))
+	{
+		if (BBHeliSeatedSince <= 0)
+		{
+			BBHeliSeatedSince = WorldInfo.TimeSeconds;
+			if (BBHeliMission != 'Lift')
+			{
+				BBHeliTellPassengers("[BetterBots] Despegamos en 6 s");
+			}
+		}
+		bHold = BBHeliMission != 'Lift' && WorldInfo.TimeSeconds - BBHeliSeatedSince < 6.0;
+	}
+	else
+	{
+		BBHeliSeatedSince = 0;
+		bHold = BBHM.BBHumanAtHeliBase(BBHeli);
+	}
+
+	if (!bHold)
+	{
+		BBHeliHoldStart = 0;
+		return false;
+	}
+	if (BBHeliHoldStart <= 0)
+	{
+		BBHeliHoldStart = WorldInfo.TimeSeconds;
+		`log("[BetterBots][Heli]"@BBName()@"waits on the ground for the human at the heli base");
+	}
+	if (WorldInfo.TimeSeconds - BBHeliHoldStart > 120.0)
+	{
+		return false;
+	}
+	// Keep the spool-up timer from running out while we wait
+	BBHeliTaskStart = WorldInfo.TimeSeconds;
+	return true;
+}
+
+/** Enemy anti-air (SAM site) is up, or a missile is already coming */
+/** Gunner that left with a human pilot and got no new heli: back to infantry */
+function BBFreeIdleGunnerRole()
+{
+	if (Vehicle(Pawn) == none && BBCrewHeli == none && !bBBHeliPilot && !bBBHeliRider)
+	{
+		BBFreePilotRole();
+	}
+}
+
+function bool BBHeliAAThreat()
+{
+	local ROTeamInfo ROTI;
+
+	if (BBHeli == none)
+	{
+		return false;
+	}
+	if (BBHeli.bIncomingMissile)
+	{
+		return true;
+	}
+	if (WorldInfo.GRI == none || GetTeamNum() > 1)
+	{
+		return false;
+	}
+	ROTI = ROTeamInfo(WorldInfo.GRI.Teams[1 - GetTeamNum()]);
+	return ROTI != none && ROTI.bAntiAirActive;
 }
 
 function float BBRandHeli(float A, float B)
@@ -2378,7 +2492,15 @@ function BBRideTick()
 	// Gunner: stays with the heli. Gets out if nobody is flying it any more
 	if (H.Controller == none && BBHM.HeliOnGround(H))
 	{
-		if (BBRideStart < WorldInfo.TimeSeconds - 20.0)
+		// The human pilot jumped out (maybe swapping helis): get out quickly and
+		// keep the gunner role a while so the manager can put us in their new heli
+		if (BBGetHM() != none && BBHM.BBHumanAtHeliBase(H) && BBRideStart < WorldInfo.TimeSeconds - 3.0)
+		{
+			`log("[BetterBots][Heli]"@BBName()@"pilot left, gets out and waits for a new heli");
+			BBLeaveVehicle();
+			SetTimer(60.0, false, 'BBFreeIdleGunnerRole');
+		}
+		else if (BBRideStart < WorldInfo.TimeSeconds - 20.0)
 		{
 			BBLeaveVehicle();
 			BBFreePilotRole();
