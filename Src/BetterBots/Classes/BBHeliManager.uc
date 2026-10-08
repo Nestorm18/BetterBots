@@ -313,7 +313,7 @@ function bool BotsMayCrew()
 function BBTick()
 {
 	local ROVehicleHelicopter H;
-	local bool bMayCrew, bAllPiloted;
+	local bool bMayCrew, bAllPiloted, bHumanAboard;
 	local int NumHelis;
 
 	BBExpireMemory();
@@ -331,7 +331,8 @@ function BBTick()
 		BBCheckHumanTakeover(H);
 		if (H.Driver == none && H.Controller == none)
 		{
-			if (bMayCrew && !BBReservedForHuman(H))
+			// A human in the gunner/passenger seat gets a bot pilot right away
+			if ((bMayCrew || BBHumanAboard(H)) && HeliOnGround(H) && !BBReservedForHuman(H))
 			{
 				BBAssignCrew(H, 0);
 			}
@@ -348,9 +349,11 @@ function BBTick()
 		{
 			continue;
 		}
-		if (bMayCrew || PlayerController(H.Controller) != none)
+		bHumanAboard = BBHumanAboard(H);
+		if (bMayCrew || bHumanAboard)
 		{
-			BBCrewGuns(H, bAllPiloted);
+			// A human's heli gets its gunner first, even if other helis lack pilots
+			BBCrewGuns(H, bAllPiloted || bHumanAboard);
 		}
 		BBBoardPassengers(H);
 	}
@@ -388,8 +391,28 @@ function bool BBReservedForHuman(ROVehicleHelicopter H)
 
 	foreach WorldInfo.AllControllers(class'PlayerController', PC)
 	{
-		if (PC.Pawn != none && PC.Pawn.Health > 0 && PC.GetTeamNum() == H.GetTeamNum() &&
+		// Only humans on foot (one already sitting in a heli wants a crew, not the cockpit)
+		if (PC.Pawn != none && PC.Pawn.Health > 0 && Vehicle(PC.Pawn) == none && PC.GetTeamNum() == H.GetTeamNum() &&
 			HasPilotRole(PC, H.bTransportHelicopter) && VSizeSq(PC.Pawn.Location - H.Location) < BB_HumanReserveDist * BB_HumanReserveDist)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/** A human sits in one of the heli's seats */
+function bool BBHumanAboard(ROVehicleHelicopter H)
+{
+	local int i;
+
+	if (PlayerController(H.Controller) != none)
+	{
+		return true;
+	}
+	for (i = 1; i < H.Seats.Length; i++)
+	{
+		if (PlayerController(SeatController(H, i)) != none)
 		{
 			return true;
 		}
@@ -562,7 +585,7 @@ function BBCrewGuns(ROVehicleHelicopter H, bool bAllPiloted)
 		if (IsGunnerCopilotSeat(H, i))
 		{
 			// Uses a pilot slot: only once every heli has its pilot
-			if (bAllPiloted && PilotSlotsFree(H.GetTeamNum(), false) > 0)
+			if (bAllPiloted && HeliOnGround(H) && PilotSlotsFree(H.GetTeamNum(), false) > 0)
 			{
 				BBAssignCrew(H, i);
 			}

@@ -1823,8 +1823,9 @@ function bool BBReactToHelis()
 		return true;
 	}
 
-	// Everyone else gets down while a heli is close (does not stop what they do)
-	if (D < 6000.0)
+	// Everyone else holding a position gets down while a heli is close
+	// (not while walking: prone bots crawl and get stuck on props)
+	if (D < 6000.0 && (InMyObjectiveArea(true) || BBIsHoldingPost() || IsInState('ScanHorizon')))
 	{
 		if (!Pawn.bIsProning)
 		{
@@ -1850,8 +1851,9 @@ function bool BBCanCheckStuck()
 	{
 		return false;
 	}
-	// Fighting, or staying put on purpose (capture zone or role post)
-	if (Enemy != none || IsEngageState() || InMyObjectiveArea(true) || BBIsHoldingPost())
+	// Fighting, or staying put on purpose (capture zone, role post, pinned, falling back)
+	if (Enemy != none || IsEngageState() || InMyObjectiveArea(true) || BBIsHoldingPost() ||
+		WorldInfo.TimeSeconds < BBPinnedUntil || WorldInfo.TimeSeconds < BBFallBackUntil)
 	{
 		return false;
 	}
@@ -1926,8 +1928,85 @@ function BBUnstick()
 	BBClearPost();	// The post may be unreachable
 	ResetFailedMoveAttempts();
 	EmptyPathCache();
+	// Still not moving after a sidestep: probably clipped into a prop.
+	// Nudge the pawn a couple of metres to free space (only if it fits)
+	if (BBStuckStrikes >= 2)
+	{
+		BBTryNudge();
+	}
+	// Physically stuck (rock, fence, spawn props): step aside first, the
+	// objective is picked again when the short hold ends
+	if (BBTrySidestep())
+	{
+		return;
+	}
 	// Picks an objective (honouring the avoid list), a fresh goal point and restarts movement
 	FindNewObjective();
+}
+
+/** Walk a few metres to a random clear spot to get off whatever we are caught on */
+function bool BBTrySidestep()
+{
+	local vector Dir, Target;
+	local int i;
+
+	for (i = 0; i < 8; i++)
+	{
+		Dir = VRand();
+		Dir.Z = 0;
+		Dir = Normal(Dir);
+		Target = Pawn.Location + Dir * BBRand(300.0, 700.0);
+		if (!FastTrace(Target, Pawn.Location))
+		{
+			continue;
+		}
+		Target = GetValidLocationNear(Target, Pawn.Location);
+		if (VSizeSq(Target - Pawn.Location) > 40000.0)	// At least 4 m away
+		{
+			`log("[BetterBots]"@GetPName()@"sidestepping to get unstuck");
+			Pawn.ShouldProne(false);
+			Pawn.ShouldCrouch(false);
+			bBBProneForCover = false;
+			BBFallBackUntil = WorldInfo.TimeSeconds + BBRand(2.5, 4.0);
+			SetGoalLocation(Target);
+			GotoState('GoThereAndStayThere');
+			// Then head for the objective again from the new spot
+			SetTimer(BBFallBackUntil - WorldInfo.TimeSeconds + 0.1, false, 'BBAfterSidestep');
+			return true;
+		}
+	}
+	return false;
+}
+
+function bool BBTryNudge()
+{
+	local vector Dir, Start, Dest;
+	local int i;
+
+	Start = Pawn.Location;
+	for (i = 0; i < 12; i++)
+	{
+		Dir = VRand();
+		Dir.Z = 0;
+		Dir = Normal(Dir);
+		Dest = Start + Dir * BBRand(60.0, 200.0) + vect(0,0,30);
+		// SetLocation fails if the pawn would overlap something
+		if (Pawn.SetLocation(Dest))
+		{
+			`log("[BetterBots]"@GetPName()@"was clipped into geometry, nudged"@int(VSize(Dest - Start))@"UU");
+			Pawn.SetPhysics(PHYS_Falling);
+			return true;
+		}
+	}
+	return false;
+}
+
+function BBAfterSidestep()
+{
+	if (Pawn != none && Pawn.Health > 0 && Vehicle(Pawn) == none && IsInState('GoThereAndStayThere'))
+	{
+		FindNewObjective();
+	}
 }
 
 defaultproperties

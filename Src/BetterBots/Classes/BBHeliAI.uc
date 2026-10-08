@@ -39,10 +39,10 @@ const BB_HeliHoverAGL		= 1500.0;	// 30 m
 const BB_HeliLoiterAGL		= 2500.0;	// 50 m
 const BB_HeliCruiseAGL		= 3000.0;	// 60 m over the highest ground ahead
 const BB_HeliApproachAGL	= 1500.0;
-const BB_HeliCruiseSpeed	= 1800.0;	// UU/s (~130 km/h)
-const BB_HeliMaxTilt		= 3641.0;	// 20 deg cyclic limit
+const BB_HeliCruiseSpeed	= 2700.0;	// UU/s (~195 km/h)
+const BB_HeliMaxTilt		= 4551.0;	// 25 deg cyclic limit
 const BB_HeliAttackTilt		= 5461.0;	// 30 deg nose down while aiming
-const BB_HeliRunSpeed		= 1700.0;
+const BB_HeliRunSpeed		= 2400.0;
 
 // Crew assignment (set by BBHeliManager)
 var		ROVehicleHelicopter	BBCrewHeli;
@@ -72,7 +72,8 @@ var		float				BBHeliMaxAGL;
 var		float				BBHeliTouchdownVZ;
 var		float				BBHeliNextThink;
 var		bool				bBBHeliCede;		// Flying home to give the pilot role to the human
-var		bool				bBBHeliResume;		// Re-entering BBHeliFly after a stray state change
+var		bool				bBBHeliResume;
+var		int					BBHeliLastYaw;		// Re-entering BBHeliFly after a stray state change
 var		vector				BBHeliStandoffCenter;
 
 // Autopilot target
@@ -264,6 +265,19 @@ function BBTryBoardCrew()
 		if (Seat == 0 || BBHM.IsGunnerCopilotSeat(H, Seat))
 		{
 			BBFreePilotRole();
+		}
+		return;
+	}
+	// Never jump into a heli in the air: wait for it to land (up to 90 s)
+	if (!BBHM.HeliOnGround(H))
+	{
+		if (WorldInfo.TimeSeconds - BBCrewAssignTime < 90.0)
+		{
+			SetTimer(2.0, false, 'BBTryBoardCrew');
+		}
+		else
+		{
+			BBCrewHeli = none;
 		}
 		return;
 	}
@@ -733,7 +747,7 @@ function BBHeliSteer(float DeltaTime)
 {
 	local vector X, Y, Z, VelNoZ, DesiredVel, VelErr, ToDest, Dir;
 	local float AGL, VZ, DesiredVZ, TargetZ, Collective, SpeedNorm, TargetPitch, TargetRoll;
-	local float InForward, InStrafe, InYaw, Dist, Speed, WantedSpeed, MaxClimb;
+	local float InForward, InStrafe, InYaw, Dist, Speed, WantedSpeed, MaxClimb, YawRate;
 	local int YawErr, AimYaw, AimPitch;
 	local bool bAirborne;
 
@@ -871,8 +885,19 @@ function BBHeliSteer(float DeltaTime)
 
 		BBHeliTargetYaw = BBNavYaw;
 		YawErr = NormalizeRotAxis(BBHeliTargetYaw - BBHeli.Rotation.Yaw);
-		InYaw = FClamp(YawErr / (bBBNavAim ? 5000.0 : 8192.0), -0.6, 0.6);
+		// Pedals: proportional plus yaw-rate damping (stronger when aiming)
+		YawRate = NormalizeRotAxis(BBHeli.Rotation.Yaw - BBHeliLastYaw) / FMax(DeltaTime, 0.001);
+		if (bBBNavAim)
+		{
+			InYaw = FClamp(YawErr / 3000.0 - YawRate / 15000.0, -1.0, 1.0);
+		}
+		else
+		{
+			InYaw = FClamp(YawErr / 6000.0 - YawRate / 20000.0, -0.8, 0.8);
+		}
 	}
+
+	BBHeliLastYaw = BBHeli.Rotation.Yaw;
 
 	// The stock auto-hover would overwrite our cyclic inputs
 	if (BBHeli.bAutoHover)
@@ -1044,7 +1069,7 @@ function BBHeliStartEvade(vector From)
 	Away = Normal(Away);
 	// Break to one side, not straight away (harder to track)
 	Away = Normal(Away + (vect(0,0,1) cross Away) * ((FRand() < 0.5) ? 0.7 : -0.7));
-	BBHeliEvadeVel = Away * 1800.0;
+	BBHeliEvadeVel = Away * 2400.0;
 	BBHeliEvadeUntil = WorldInfo.TimeSeconds + 4.0 + FRand() * 2.0;
 	if (BBHeliTask != 'Evade')
 	{
@@ -1056,17 +1081,15 @@ function BBHeliStartEvade(vector From)
 
 function bool BBHeliCrewHurt()
 {
-	local int i;
-	local Pawn P;
+	local int i, Seat;
 
-	if (BBHeli.Driver != none && BBHeli.Driver.Health < 60)
+	// Crew health lives in the seat proxies (0-100), not in the hidden driver pawns
+	for (i = 0; i < BBHeli.SeatProxies.Length; i++)
 	{
-		return true;
-	}
-	for (i = 1; i < BBHeli.Seats.Length; i++)
-	{
-		P = BBHeli.Seats[i].StoragePawn;
-		if (P != none && P.Health > 0 && P.Health < 50 && class'BBHeliManager'.static.IsGunnerCopilotSeat(BBHeli, i))
+		Seat = BBHeli.SeatProxies[i].SeatIndex;
+		if ((Seat == 0 || class'BBHeliManager'.static.IsGunnerCopilotSeat(BBHeli, Seat)) &&
+			class'BBHeliManager'.static.SeatController(BBHeli, Seat) != none &&
+			BBHeli.SeatProxies[i].Health > 0 && BBHeli.SeatProxies[i].Health < 50)
 		{
 			return true;
 		}
@@ -1325,7 +1348,8 @@ function BBHeliRunIn()
 	local float D, AGL;
 	local ROVehicleWeapon G;
 	local bool bRockets, bDone;
-	local int Fired;
+	local int Fired, AimYaw, AimPitch;
+	local float RunSpeed;
 
 	if (BBHeliTarget != none && BBHeliTarget.Health > 0 && FastTrace(BBHeliTarget.Location + vect(0,0,40), BBHeli.Location - vect(0,0,150)))
 	{
@@ -1337,7 +1361,14 @@ function BBHeliRunIn()
 	AGL = BBHeliAGL();
 	G = BBHeliGun();
 
-	BBNavVelocity(Normal(ToT) * ((BBHeliMission == 'Scout') ? 1000.0 : BB_HeliRunSpeed), FMax(AGL - 300.0, (BBHeliMission == 'Scout') ? 1200.0 : 1800.0));
+	// Target well off the nose: slow down so the pedals can bring it round
+	BBHeliAimAt(BBHeliTargetLoc, AimYaw, AimPitch);
+	RunSpeed = (BBHeliMission == 'Scout') ? 1500.0 : BB_HeliRunSpeed;
+	if (Abs(NormalizeRotAxis(AimYaw - BBHeli.Rotation.Yaw)) > 4500)	// 25 deg
+	{
+		RunSpeed = 500.0;
+	}
+	BBNavVelocity(Normal(ToT) * RunSpeed, FMax(AGL - 300.0, (BBHeliMission == 'Scout') ? 1200.0 : 1800.0));
 	bBBNavAim = true;
 
 	if (BBHeliMission == 'Attack')
@@ -1347,28 +1378,28 @@ function BBHeliRunIn()
 			!BBHeliHasAmmo(1) || FRand() < 0.3);
 		if (bRockets)
 		{
-			BBHeliTryFire(BBHeliTargetLoc, 4000.0, 30000.0, 0.9986, 0, 0.25);
+			BBHeliTryFire(BBHeliTargetLoc, 4000.0, 30000.0, 0.996, 0, 0.25);
 		}
 		else
 		{
-			BBHeliTryFire(BBHeliTargetLoc, 2500.0, 15000.0, 0.997, 1, 1.2);
+			BBHeliTryFire(BBHeliTargetLoc, 2500.0, 15000.0, 0.993, 1, 1.2);
 		}
 		Fired = (G != none) ? (BBHeliRunAmmoStart - G.AmmoCount) : 0;
 		bDone = Fired >= 4 || (G != none && BBHeliRunAltAmmoStart - G.AltAmmoCount >= 60);
 	}
 	else if (BBHeliMission == 'Gunship')
 	{
-		BBHeliTryFire(BBHeliTargetLoc, 4000.0, 30000.0, 0.9986, 0, 0.25);
+		BBHeliTryFire(BBHeliTargetLoc, 4000.0, 30000.0, 0.996, 0, 0.25);
 		bDone = G != none && BBHeliRunAmmoStart - G.AmmoCount >= 4;
 	}
 	else
 	{
 		// Loach minigun
-		BBHeliTryFire(BBHeliTargetLoc, 800.0, 7000.0, 0.996, 0, 1.2);
+		BBHeliTryFire(BBHeliTargetLoc, 800.0, 9000.0, 0.99, 0, 1.2);
 		bDone = G != none && BBHeliRunAmmoStart - G.AmmoCount >= 250;
 	}
 
-	if (bDone || D < ((BBHeliMission == 'Scout') ? 1200.0 : 3500.0) || AGL < 900.0 || BBHeliTaskTime() > 18.0)
+	if (bDone || D < ((BBHeliMission == 'Scout') ? 1500.0 : 3500.0) || AGL < 900.0 || BBHeliTaskTime() > 18.0)
 	{
 		BBHeliStopFire();
 		BBHeliSetTask('Egress');
@@ -1473,7 +1504,7 @@ function BBHeliThink()
 			else
 			{
 				// Slow circle, never a static hover in the combat area
-				BBNavOrbit(BBHeliStandoff, 1800.0, 700.0, BBHeliStandoffAGL);
+				BBNavOrbit(BBHeliStandoff, 1800.0, 1000.0, BBHeliStandoffAGL);
 			}
 			if (WorldInfo.TimeSeconds > BBHeliNextRun && (BBHeliHasAmmo(0) || BBHeliHasAmmo(1)) && BBHeliFindRunTarget(45000.0))
 			{
@@ -1493,12 +1524,12 @@ function BBHeliThink()
 			}
 			else
 			{
-				BBNavOrbit(BBHeliCenter, BBHeliOrbitRadius, (BBHeliMission == 'Scout') ? 900.0 : 1000.0, BBHeliOrbitAGL);
+				BBNavOrbit(BBHeliCenter, BBHeliOrbitRadius, 1300.0, BBHeliOrbitAGL);
 			}
 			if (BBHeliMission == 'Scout')
 			{
 				BBHeliSpot();
-				if (WorldInfo.TimeSeconds > BBHeliNextRun && BBHeliHasAmmo(0) && BBHeliFindRunTarget(7000.0))
+				if (WorldInfo.TimeSeconds > BBHeliNextRun && BBHeliHasAmmo(0) && BBHeliFindRunTarget(12000.0))
 				{
 					BBHeliStartRun();
 				}
@@ -1526,7 +1557,7 @@ function BBHeliThink()
 			BBNavVelocity(Away * BB_HeliRunSpeed, (BBHeliMission == 'Attack') ? BBHeliStandoffAGL : BBHeliOrbitAGL + 800.0);
 			if (BBHeliTaskTime() > ((BBHeliMission == 'Scout') ? 5.0 : 8.0))
 			{
-				BBHeliNextRun = WorldInfo.TimeSeconds + ((BBHeliMission == 'Scout') ? 12.0 : 6.0) + FRand() * 6.0;
+				BBHeliNextRun = WorldInfo.TimeSeconds + ((BBHeliMission == 'Scout') ? 10.0 : 6.0) + FRand() * 6.0;
 				BBHeliSetTask(BBHeliResumeTask != '' ? BBHeliResumeTask : 'Orbit');
 			}
 			break;
@@ -1536,7 +1567,7 @@ function BBHeliThink()
 			if (FRand() < 0.15)
 			{
 				BBHeliEvadeVel = BBHeliEvadeVel + (vect(0,0,1) cross Normal(BBHeliEvadeVel)) * BBRandHeli(-900.0, 900.0);
-				BBHeliEvadeVel = Normal(BBHeliEvadeVel) * 1800.0;
+				BBHeliEvadeVel = Normal(BBHeliEvadeVel) * 2400.0;
 			}
 			BBNavVelocity(BBHeliEvadeVel, FMax(AGL, BB_HeliCruiseAGL) + 1000.0);
 			if (BBHeliMission == 'Scout')
@@ -1564,7 +1595,7 @@ function BBHeliThink()
 			break;
 
 		case 'Approach':
-			BBNavMove(BBHeliLandPoint, BB_HeliApproachAGL, FMin(BB_HeliCruiseSpeed, FMax(BBHeliDist2D(BBHeliLandPoint) * 0.3, 80.0)));
+			BBNavMove(BBHeliLandPoint, BB_HeliApproachAGL, FMin(BB_HeliCruiseSpeed, FMax(BBHeliDist2D(BBHeliLandPoint) * 0.45, 100.0)));
 			if (BBHeliMission == 'Lift' && BBHeliLiftAbortCheck())
 			{
 				break;
@@ -1927,6 +1958,7 @@ state BBHeliFly
 		BBHeliCollectiveTrim = 0.75;
 		BBNavYaw = BBHeli.Rotation.Yaw;
 		BBHeliTargetYaw = BBHeli.Rotation.Yaw;
+		BBHeliLastYaw = BBHeli.Rotation.Yaw;
 		BBHeliHoldPoint = BBHeli.Location;
 		BBHeliMaxAGL = 0;
 		BBHeliNextLog = 0;
