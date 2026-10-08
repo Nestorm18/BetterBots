@@ -101,9 +101,8 @@ Cobra (ataque):
     enemigos marcados por el Loach > resto.
   - No dispara si hay aliados a menos de ~50 m del blanco.
 
-Pareja Loach + Cobra ("Pink Team", tactica real de Vietnam):
-  - Si estan los dos en el aire: el Loach busca y marca bajo,
-    el Cobra ataca desde arriba lo que el Loach marca.
+Pareja Loach + Cobra: DESCARTADA (08-10-2026). Se mantiene solo que el
+Cobra da prioridad a los enemigos que marca el Loach.
 
 Bushranger (opcional):
   - Orbita inclinado alrededor del blanco ("pylon turn") para que
@@ -191,7 +190,7 @@ FASE 4 - Logistica                                  Dificultad: media
 
 FASE 5 - Realismo                                   Dificultad: alta
   Tareas:
-  - Pareja Loach + Cobra.
+  - (Pareja Loach + Cobra: descartada.)
   - Memoria de amenazas y evasion.
   - Aterrizaje de emergencia.
   - Bushranger (opcional).
