@@ -77,7 +77,17 @@ var		int					BBHeliLastYaw;
 var		bool				bBBHeliLongShot;	// This attack is a long-range shot from a near hover
 var		float				BBHeliLongDist;
 var		bool				bBBHeliRunRockets;
-var		float				BBHeliAimLift;		// Aim above the target for drop at long range		// Re-entering BBHeliFly after a stray state change
+var		float				BBHeliAimLift;		// Aim above the target for drop at long range
+
+// Adaptive tactics: 0 = diving pass, 1 = long-range shot
+var		byte				BBHeliTactic;
+var		bool				bBBHeliTacticSet;
+var		int					BBHeliTacticRuns[2];
+var		int					BBHeliTacticKills[2];
+var		int					BBHeliRunKills;		// Kills since the last attack started
+var		int					BBHeliDryRuns;		// Attacks in a row without kills
+var		bool				bBBHeliHadRun;
+var		float				BBHeliNextTacticReview;		// Re-entering BBHeliFly after a stray state change
 var		vector				BBHeliStandoffCenter;
 
 // Autopilot target
@@ -1333,6 +1343,85 @@ function bool BBHeliFindRunTarget(float Range)
 	return true;
 }
 
+/**
+ * Keep the tactic that gets kills. Three attacks in a row without kills:
+ * switch. Every 3-5 min compare kills per attack of both and keep the best,
+ * sometimes trying the other one again.
+ */
+function BBHeliPickTactic()
+{
+	local float Rate0, Rate1;
+	local byte Old;
+
+	if (!bBBHeliTacticSet)
+	{
+		bBBHeliTacticSet = true;
+		BBHeliTactic = (FRand() < ((BBHeliMission == 'Scout') ? 0.35 : 0.45)) ? 1 : 0;
+		BBHeliNextTacticReview = WorldInfo.TimeSeconds + 180.0 + FRand() * 120.0;
+		`log("[BetterBots][Heli]"@BBName()@"starts with tactic"@BBHeliTacticName(BBHeliTactic));
+	}
+	Old = BBHeliTactic;
+
+	// How did the previous attack go?
+	if (bBBHeliHadRun)
+	{
+		if (BBHeliRunKills > 0)
+		{
+			BBHeliDryRuns = 0;
+		}
+		else
+		{
+			BBHeliDryRuns++;
+		}
+	}
+	BBHeliRunKills = 0;
+
+	if (BBHeliDryRuns >= 3)
+	{
+		BBHeliTactic = 1 - BBHeliTactic;
+		BBHeliDryRuns = 0;
+		`log("[BetterBots][Heli]"@BBName()@"3 attacks without kills, switching to"@BBHeliTacticName(BBHeliTactic));
+	}
+	else if (WorldInfo.TimeSeconds > BBHeliNextTacticReview)
+	{
+		BBHeliNextTacticReview = WorldInfo.TimeSeconds + 180.0 + FRand() * 120.0;
+		Rate0 = (BBHeliTacticKills[0] + 1.0) / (BBHeliTacticRuns[0] + 2.0);
+		Rate1 = (BBHeliTacticKills[1] + 1.0) / (BBHeliTacticRuns[1] + 2.0);
+		BBHeliTactic = (Rate1 > Rate0) ? 1 : 0;
+		if (FRand() < 0.25)
+		{
+			BBHeliTactic = 1 - BBHeliTactic;	// Try the other one now and then
+		}
+		`log("[BetterBots][Heli]"@BBName()@"tactic review: pass"@BBHeliTacticKills[0]$"/"$BBHeliTacticRuns[0]@
+			"long"@BBHeliTacticKills[1]$"/"$BBHeliTacticRuns[1]@"(kills/attacks) ->"@BBHeliTacticName(BBHeliTactic));
+	}
+	if (Old != BBHeliTactic)
+	{
+		BBHeliDryRuns = 0;
+	}
+	BBHeliTacticRuns[BBHeliTactic]++;
+	bBBHeliHadRun = true;
+}
+
+function string BBHeliTacticName(byte T)
+{
+	return (T == 1) ? "long-range" : "pass";
+}
+
+/** Our helicopter weapons killed someone: credit the current tactic */
+function NotifyKilled(Controller Killer, Controller Killed, Pawn KilledPawn, class<DamageType> damageType)
+{
+	super.NotifyKilled(Killer, Killed, KilledPawn, damageType);
+
+	if (Killer == self && bBBHeliPilot && Killed != none && Killed != self && Killed.GetTeamNum() != GetTeamNum() && bBBHeliHadRun)
+	{
+		BBHeliRunKills++;
+		BBHeliTacticKills[BBHeliTactic]++;
+		`log("[BetterBots][Heli]"@BBName()@"kill with tactic"@BBHeliTacticName(BBHeliTactic)@
+			"("$BBHeliTacticKills[BBHeliTactic]@"kills in"@BBHeliTacticRuns[BBHeliTactic]@"attacks)");
+	}
+}
+
 function BBHeliStartRun()
 {
 	local ROVehicleWeapon G;
@@ -1344,8 +1433,9 @@ function BBHeliStartRun()
 	BBHeliAimLift = 0;
 
 	// Two styles: a fast diving pass, or a long-range shot from a near hover
-	// (steadier aim, keeps out of small-arms range)
-	bBBHeliLongShot = FRand() < ((BBHeliMission == 'Scout') ? 0.35 : 0.45);
+	// (steadier aim, out of small-arms range). Keeps what works, see BBHeliPickTactic
+	BBHeliPickTactic();
+	bBBHeliLongShot = (BBHeliTactic == 1);
 	if (BBHeliMission == 'Scout')
 	{
 		BBHeliLongDist = 6000.0 + FRand() * 3000.0;		// 120-180 m
