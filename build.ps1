@@ -8,6 +8,8 @@
 
 $ErrorActionPreference = 'Stop'
 
+$Version    = '0.9.0'
+
 $Root       = $PSScriptRoot
 $SdkEditor  = 'D:\SteamLibrary\steamapps\common\Rising Storm 2\Binaries\Win64\VNEditor.exe'
 $GameUser   = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Rising Storm 2\ROGame'
@@ -42,12 +44,14 @@ New-Item -ItemType Directory -Force (Join-Path $Root 'Mod') | Out-Null
 Copy-Item $BuiltU (Join-Path $Root 'Mod') -Force
 $Stage = Join-Path $env:TEMP 'BetterBots_dist'
 if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
-New-Item -ItemType Directory -Force "$Stage\Mod", "$Stage\Codigo" | Out-Null
+New-Item -ItemType Directory -Force "$Stage\Mod", "$Stage\Source" | Out-Null
 Copy-Item (Join-Path $Root 'Mod\BetterBots.u') "$Stage\Mod"
-Copy-Item (Join-Path $Root 'Src\BetterBots\Classes\*.uc') "$Stage\Codigo"
-Copy-Item (Join-Path $Root 'LEEME.txt'), (Join-Path $Root 'PLAN-HELICOPTEROS.txt') $Stage
+Copy-Item (Join-Path $Root 'Src\BetterBots\Classes\*.uc') "$Stage\Source"
+Copy-Item (Join-Path $Root 'README.txt'), (Join-Path $Root 'LEEME.txt') $Stage
 New-Item -ItemType Directory -Force (Join-Path $Root 'dist') | Out-Null
 Compress-Archive -Path "$Stage\*" -DestinationPath (Join-Path $Root 'dist\BetterBots.zip') -Force
+# Release asset with the version in the name
+Copy-Item (Join-Path $Root 'dist\BetterBots.zip') (Join-Path $Root "dist\BetterBots-v$Version.zip") -Force
 Remove-Item $Stage -Recurse -Force
 
-Write-Host 'OK: Mod\BetterBots.u y dist\BetterBots.zip actualizados' -ForegroundColor Green
+Write-Host "OK: Mod\BetterBots.u, dist\BetterBots.zip y dist\BetterBots-v$Version.zip actualizados" -ForegroundColor Green

@@ -1,5 +1,6 @@
 BetterBots - mod de bots para Rising Storm 2: Vietnam (solo offline)
 =====================================================================
+(English instructions: README.txt)
 
 INSTALACION
 -----------
@@ -71,6 +72,8 @@ COMPORTAMIENTO GENERAL (además de helicópteros)
      otra orden). "Seguidme": formación abierta; cuando paras se
      agachan vigilando hacia fuera.
    - Las escuadras con líder bot van juntas a su objetivo.
+   - Los defensores buscan cobertura (muros, rocas, árboles, techos)
+     y esperan agachados en emboscada.
    - Ametralladoras fijas (DShK/M2): las usan defensores cercanos
      cuando hay enemigos o helicópteros; las dejan si les flanquean,
      si cae el punto, si te acercas tú o tras 1 min sin blancos.
@@ -82,7 +85,7 @@ COMANDOS EN PARTIDA (consola)
    BBLeader        Ser líder de tu escuadra (el bot líder pasa a soldado).
 
 HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
-   Automatico. Tienes 30 s desde que apareces para elegir piloto;
+   Automatico. Tienes 15 s desde que apareces para elegir piloto;
    despues los bots cogen los helicopteros libres:
    - Cobra: espera alto y lejos, hace pasadas de cohetes/cañon y se va.
      Si sobran plazas de piloto, lleva un bot artillero en la torreta.
@@ -93,8 +96,9 @@ HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
    - Huey de transporte: espera en base a pasajeros (3+ o 60 s; si
      subes tú, sale en 10 s; sin nadie, sale a los 3 min), aterriza
      a 150-300 m del objetivo y vuelve. Si hay fuego, aterriza más lejos.
-     Los bots muertos reaparecen dentro del Huey mientras espera en
-     base, y dentro de tu Huey/Bushranger si lo pilotas tú.
+     Los bots muertos pueden reaparecer dentro del Huey (en base o de
+     camino a la zona) y de tu Huey/Bushranger si lo pilotas tú. Si hay
+     puntos de aparición avanzados, solo lo hace un 10 %.
    - Vuelven a base a recargar y reparar (munición <20 %, daños,
      tripulación herida). Esquivan zonas donde les han disparado.
    - Si disparan a un helicóptero, el Loach marca al tirador y el
@@ -107,7 +111,7 @@ HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
    Tú tienes prioridad:
    - Mientras estes en la base de helis (a pie o en un helicoptero en
      tierra), los bots de los otros helicopteros esperan en tierra
-     (max. 2 min). Si subes al de un bot, despega a los 6 s.
+     (max. 30 s). Si subes al de un bot, despega a los 6 s.
    - Si te bajas para cambiar de helicoptero, tu artillero bot se baja
      tambien y se sube contigo al nuevo.
    - Elige un rol de piloto ocupado por bots: un bot en tierra te lo
@@ -135,5 +139,5 @@ NOTAS
 -----
 - Solo funciona offline. En servidores online no se carga.
 - No lo uses a la vez que otros mods de bots (p. ej. GOM): chocarían.
-- La carpeta "Codigo" contiene el código fuente (no hace falta para jugar).
+- La carpeta "Source" contiene el código fuente (no hace falta para jugar).
 - Para desinstalar: borra BetterBots.u y quita -useunpublished de Steam.
