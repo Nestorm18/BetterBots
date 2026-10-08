@@ -91,8 +91,10 @@ HELICOPTEROS CON BOTS (bando EE. UU., mapas con helicopteros)
    - Bushranger: gira alrededor del combate con los ametralladores
      de puerta disparando.
    - Huey de transporte: espera en base a pasajeros (3+ o 60 s; si
-     subes tú, sale en 10 s), aterriza a 150-300 m del objetivo y
-     vuelve. Si hay fuego en la zona, aterriza más lejos.
+     subes tú, sale en 10 s; sin nadie, sale a los 3 min), aterriza
+     a 150-300 m del objetivo y vuelve. Si hay fuego, aterriza más lejos.
+     Los bots muertos reaparecen dentro del Huey mientras espera en
+     base, y dentro de tu Huey/Bushranger si lo pilotas tú.
    - Vuelven a base a recargar y reparar (munición <20 %, daños,
      tripulación herida). Esquivan zonas donde les han disparado.
    - Si disparan a un helicóptero, el Loach marca al tirador y el

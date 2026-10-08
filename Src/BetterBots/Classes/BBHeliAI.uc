@@ -143,6 +143,10 @@ var		float				BBHeliNextWaitMsg;
 var		float				BBHeliHoldStart;
 var		float				BBHeliSeatedSince;
 
+// Respawn selection pointed at a heli by the manager
+var		bool				bBBHeliSpawnSel;
+var		byte				BBSavedSpawnSel;
+
 // Riders and gunners
 var		bool				bBBHeliRider;
 var		bool				bBBHeliGunner;
@@ -211,8 +215,17 @@ function Possess(Pawn aPawn, bool bVehicleTransition)
 		BBHeli = ROVehicleHelicopter(aPawn);
 		GotoState('BBHeliFly');
 	}
-	else if (WP != none && ROVehicleHelicopter(WP.MyVehicle) != none && bBBHeliRider)
+	else if (WP != none && ROVehicleHelicopter(WP.MyVehicle) != none && !bBBHeliPilot)
 	{
+		if (!bBBHeliRider)
+		{
+			// Spawned straight into a seat (heli spawn)
+			bBBHeliRider = true;
+			bBBHeliGunner = class'BBHeliManager'.static.IsDoorGunSeat(ROVehicleHelicopter(WP.MyVehicle), WP.MySeatIndex) ||
+				class'BBHeliManager'.static.IsGunnerCopilotSeat(ROVehicleHelicopter(WP.MyVehicle), WP.MySeatIndex);
+			`log("[BetterBots][Heli]"@BBName()@"spawned in the"@class'BBHeliManager'.static.HeliName(ROVehicleHelicopter(WP.MyVehicle))@
+				"seat"@WP.MySeatIndex@(bBBHeliGunner ? "as gunner" : "as passenger"));
+		}
 		GotoState('BBHeliRide');
 	}
 	else if (Vehicle(aPawn) == none)
@@ -2164,6 +2177,11 @@ function BBHeliLiftWait()
 	}
 	else if (NumPass >= 1 && Waited >= 60.0)
 	{
+		bGo = true;
+	}
+	else if (Waited >= 180.0)
+	{
+		// Nobody came: fly the run anyway (door gunners still help)
 		bGo = true;
 	}
 	if (!bGo)

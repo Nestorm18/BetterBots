@@ -379,6 +379,7 @@ function BBTick()
 	}
 
 	BBCheckCede();
+	BBUpdateHeliSpawns();
 
 	if (WorldInfo.TimeSeconds > NextLog && NumHelis > 0)
 	{
@@ -497,6 +498,93 @@ function bool BBHumanAtHeliBase(ROVehicleHelicopter H)
 	return false;
 }
 
+/*-----------------------------------------------------------------------------
+	Spawning into helicopters (as players can): dead bots respawn in a bot
+	Huey waiting at base, or in a Huey/Bushranger flown by a human
+-----------------------------------------------------------------------------*/
+
+function bool BBWantsSpawnIns(ROVehicleHelicopter H)
+{
+	local BBAIController Pilot;
+
+	if (PlayerController(H.Controller) != none)
+	{
+		return H.bTransportHelicopter || H.bIsGunship;
+	}
+	Pilot = BBAIController(H.Controller);
+	return Pilot != none && H.bTransportHelicopter && Pilot.BBHeliMission == 'Lift' && Pilot.BBHeliTask == 'Wait';
+}
+
+function int BBFreeRideSeats(ROVehicleHelicopter H)
+{
+	local int i, N;
+
+	for (i = 1; i < H.Seats.Length; i++)
+	{
+		if ((IsPassengerSeat(H, i) || IsDoorGunSeat(H, i)) && SeatFree(H, i))
+		{
+			N++;
+		}
+	}
+	return N;
+}
+
+/** Points the spawn selection of dead bots at a heli that wants them (stock spawn code does the rest) */
+function BBUpdateHeliSpawns()
+{
+	local int Team, i, Idx[2], Room[2];
+	local ROTeamInfo ROTI;
+	local ROVehicleHelicopter H;
+	local BBAIController Bot;
+	local ROPlayerReplicationInfo ROPRI;
+
+	for (Team = 0; Team < 2; Team++)
+	{
+		Idx[Team] = -1;
+		ROTI = ROTeamInfo(WorldInfo.GRI.Teams[Team]);
+		if (ROTI == none)
+		{
+			continue;
+		}
+		for (i = 0; i < ArrayCount(ROTI.TeamHelicopterArray) && i < 10; i++)
+		{
+			H = ROTI.TeamHelicopterArray[i];
+			if (HeliUsable(H) && H.CanSpawnInto() && BBWantsSpawnIns(H))
+			{
+				Idx[Team] = i;
+				Room[Team] = BBFreeRideSeats(H);
+				break;
+			}
+		}
+	}
+
+	foreach WorldInfo.AllControllers(class'BBAIController', Bot)
+	{
+		ROPRI = ROPlayerReplicationInfo(Bot.PlayerReplicationInfo);
+		if (ROPRI == none)
+		{
+			continue;
+		}
+		Team = Bot.GetTeamNum();
+		if (Team < 2 && Idx[Team] >= 0 && Room[Team] > 0 && Bot.Pawn == none && Bot.BBCrewHeli == none &&
+			ROPRI.RoleInfo != none && !ROPRI.RoleInfo.bIsPilot && !ROPRI.RoleInfo.bCanBeTankCrew)
+		{
+			if (!Bot.bBBHeliSpawnSel)
+			{
+				Bot.BBSavedSpawnSel = ROPRI.SpawnSelection;
+				Bot.bBBHeliSpawnSel = true;
+			}
+			ROPRI.SpawnSelection = byte(110 + Idx[Team]);
+			Room[Team]--;
+		}
+		else if (Bot.bBBHeliSpawnSel)
+		{
+			ROPRI.SpawnSelection = Bot.BBSavedSpawnSel;
+			Bot.bBBHeliSpawnSel = false;
+		}
+	}
+}
+
 function bool BBPilotOnTheWay(ROVehicleHelicopter H)
 {
 	local BBAIController Bot;
@@ -574,6 +662,11 @@ function BBAIController BBPickCrewBot(ROVehicleHelicopter H, int Seat, bool bNee
 		}
 
 		bAlive = Bot.Pawn != none && Bot.Pawn.Health > 0;
+		if (!bAlive && !bNeedsPilotRole)
+		{
+			// Infantry respawn far from the heli pad (they can spawn straight into a Huey instead)
+			continue;
+		}
 		Dist = bAlive ? VSize(Bot.Pawn.Location - H.Location) : 0.0;
 		if (bAlive && (Dist > BB_CrewPickupDist || (Bot.Enemy != none && Bot.LineOfSightTo(Bot.Enemy))))
 		{
