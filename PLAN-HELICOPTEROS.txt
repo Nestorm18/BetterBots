@@ -1,7 +1,8 @@
 BetterBots - PLAN: HELICOPTEROS CON BOTS
 =========================================
 Objetivo: que bots piloten y tripulen los helicopteros de ataque y
-reconocimiento de forma realista. Sin helicopteros de transporte.
+reconocimiento de forma realista, y el Huey de transporte (decision del
+08-10-2026, ver seccion 12).
 Los helicopteros vuelven a base para recargar municion y repararse.
 
 Estado (08-10-2026): FASE 0 probada en juego. FASES 1-5 IMPLEMENTADAS
